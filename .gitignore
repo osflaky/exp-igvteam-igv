@@ -1,0 +1,22 @@
+# Created by .gitignore support plugin (hsz.mobi)
+.idea/workspace.xml
+*.iml
+test/data/out/
+/build
+/build_java11
+/bin
+*.log
+/.gradle
+.project
+.classpath
+/.idea/
+/.settings
+/proguard_log
+.vscode
+out/
+.DS_Store
+*.bedgraph
+*.bam
+*.csi.gz
+*.sai
+/test/batch/snapshots/
