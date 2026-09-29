@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<Session genome="hg19" locus="chr17:37276855-37277154" nextAutoscaleGroup="4" version="8">
+    <Resources>
+        <Resource path="https://igv.org/data/test/bam/skbr3/reads_lr_skbr3.sampled.bam_junctions" type="bam"/>
+        <Resource path="https://s3.amazonaws.com/igv.org.demo/SKBR3/reads_lr_skbr3.fa_ngmlr-0.2.3_mapped.bam.sniffles1kb_auto_l8_s5_noalt_filtered.vcf" type="vcf"/>
+    </Resources>
+</Session>

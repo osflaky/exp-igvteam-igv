@@ -1,0 +1,134 @@
+package org.igv.ui.panel;
+
+import org.igv.Globals;
+import org.igv.feature.genome.GenomeManager;
+import org.igv.feature.genome.load.HubGenomeLoader;
+import org.igv.logging.LogManager;
+import org.igv.logging.Logger;
+import org.igv.session.SessionReader;
+import org.igv.track.Track;
+import org.igv.track.TrackGroup;
+import org.igv.ui.FontManager;
+import org.igv.ui.IGV;
+import org.igv.ui.UIConstants;
+import org.igv.ui.MessageCollection;
+import org.igv.ui.util.MessageUtils;
+import org.igv.util.LongRunningTask;
+import org.igv.util.ResourceLocator;
+
+import javax.swing.*;
+import java.awt.*;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.Transferable;
+import java.awt.dnd.*;
+import java.io.File;
+import java.io.IOException;
+import java.util.*;
+import java.util.List;
+
+/**
+ * @author jrobinso
+ * @date Sep 8, 2010
+ */
+public class DataPanelContainer extends TrackPanelComponent implements Paintable {
+
+    static final int default_hgap = 6;
+    private static Logger log = LogManager.getLogger(DataPanelContainer.class);
+
+    TrackPanel parent;
+
+    public DataPanelContainer(TrackPanel trackPanel) {
+        super(trackPanel);
+        this.setLayout(new BoxLayout(this, BoxLayout.X_AXIS));
+        this.parent = trackPanel;
+        createDataPanels();
+    }
+
+    public void createDataPanels() {
+        removeAll();
+        int hgap = default_hgap;
+        if (FrameManager.getFrames().size() > 10) {
+            hgap = 1 + 20 / FrameManager.getFrames().size();
+        }
+        boolean first = true;
+        for (ReferenceFrame f : FrameManager.getFrames()) {
+            if (f.isVisible()) {
+                if (!first) {
+                    this.add(Box.createRigidArea(new Dimension(hgap, 0)));
+                }
+                DataPanel dp = new DataPanel(f, this);
+                add(dp);
+                first = false;
+            }
+        }
+        invalidate();
+    }
+
+    @Override
+    public void setBackground(Color color) {
+        super.setBackground(color);
+        for (Component c : this.getComponents()) {
+            if (c instanceof DataPanel) {
+                c.setBackground(color);
+            }
+        }
+    }
+
+    public void setCurrentTool(RegionOfInterestTool regionOfInterestTool) {
+        for (Component c : this.getComponents()) {
+            if (c instanceof DataPanel) {
+                ((DataPanel) c).setCurrentTool(regionOfInterestTool);
+            }
+        }
+    }
+
+    /**
+     * Paint to an offscreen graphic, e.g. a graphic for an image or svg file.
+     *
+     * @param g -- graphics context, translated as neccessary to datapanel origin
+     * @param rect  -- Rectangle in which to draw datapanel container
+     */
+    public void paintOffscreen(Graphics2D g, Rectangle rect, boolean batch) {
+
+        // Get the components of the sort by X position.
+        Component[] components = getComponents();
+        Arrays.sort(components, Comparator.comparingInt(Component::getX));
+
+        for (Component c : this.getComponents()) {
+            if (c instanceof DataPanel) {
+                Graphics2D g2d = (Graphics2D) g.create();
+                g2d.translate(c.getX(), 0);
+                Rectangle panelRect = new Rectangle(0, rect.y, c.getWidth(), rect.height);
+                ((DataPanel) c).paintOffscreen(g2d, panelRect, batch);
+            }
+        }
+    }
+
+    @Override
+    public int getSnapshotHeight(boolean batch) {
+        return getHeight();
+    }
+
+    @Override
+    protected void paintChildren(Graphics g) {
+
+        super.paintChildren(g);
+        if (IGV.getInstance().isRulerEnabled()) {
+            int start = MouseInfo.getPointerInfo().getLocation().x - getLocationOnScreen().x;
+            g.setColor(UIConstants.getTrackPanelForeground());
+            g.drawLine(start, 0, start, getHeight());
+
+            ReferenceFrame frame = FrameManager.getDefaultFrame();
+            boolean allChrMode = frame.getChrName().equals(Globals.CHR_ALL);
+
+            if (!FrameManager.isGeneListMode() && !allChrMode) {
+                int y = MouseInfo.getPointerInfo().getLocation().y - getLocationOnScreen().y;
+                int pos = (int) frame.getChromosomePosition(start) + 1;
+
+                g.setFont(FontManager.getDefaultFont());
+                g.drawString(Globals.DECIMAL_FORMAT.format((double) pos), start + 10, y + 30);
+            }
+        }
+    }
+
+}

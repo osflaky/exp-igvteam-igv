@@ -1,0 +1,2049 @@
+/*
+ * IGV.java
+ *
+ * Represents an IGV instance.
+ *
+ * Note:  Currently, only one instance is allowed per JVM.
+ *
+ */
+package org.igv.ui;
+
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
+import org.igv.DirectoryManager;
+import org.igv.Globals;
+import org.igv.alignment.InsertionManager;
+import org.igv.batch.BatchRunner;
+import org.igv.batch.CommandListener;
+import org.igv.event.*;
+import org.igv.exceptions.DataLoadException;
+import org.igv.feature.RegionOfInterest;
+import org.igv.feature.Strand;
+import org.igv.feature.genome.Genome;
+import org.igv.feature.genome.GenomeManager;
+import org.igv.lists.GeneList;
+import org.igv.logging.Level;
+import org.igv.logging.LogManager;
+import org.igv.logging.Logger;
+import org.igv.prefs.Constants;
+import org.igv.prefs.IGVPreferences;
+import org.igv.prefs.PreferencesEditor;
+import org.igv.prefs.PreferencesManager;
+import org.igv.alignment.AlignmentTrack;
+import org.igv.alignment.InsertionSelectionEvent;
+import org.igv.sample.SampleAttributeComparator;
+import org.igv.session.*;
+import org.igv.session.autosave.AutosaveTimerTask;
+import org.igv.session.autosave.SessionAutosaveManager;
+import org.igv.track.*;
+import org.igv.ui.WaitCursorManager.CursorToken;
+import org.igv.ui.panel.*;
+import org.igv.ui.util.*;
+import org.igv.util.*;
+
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
+import java.awt.geom.Rectangle2D;
+import java.awt.image.BufferedImage;
+import java.awt.image.ImageObserver;
+import java.io.BufferedInputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
+import java.util.*;
+import java.util.List;
+import java.util.Timer;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.prefs.Preferences;
+import java.util.stream.Collectors;
+
+import static org.igv.prefs.Constants.*;
+
+/**
+ * Represents an IGV instance, consisting of a main window and associated model.
+ *
+ * @author jrobinso
+ */
+public class IGV implements IGVEventObserver {
+
+    private static Logger log = LogManager.getLogger(IGV.class);
+    private static IGV theInstance;
+
+    public static final String DATA_PANEL_NAME = "DataPanel";
+    public static final String FEATURE_PANEL_NAME = "FeaturePanel";
+
+    // Window components
+    private Frame mainFrame;
+    private JRootPane rootPane;
+    private IGVContentPane contentPane;
+    private IGVMenuBar menuBar;
+
+    // Glass panes
+    Component glassPane;
+
+    // Cursors
+    public static Cursor fistCursor;
+    public static Cursor zoomInCursor;
+    public static Cursor zoomOutCursor;
+    public static Cursor dragNDropCursor;
+
+    /**
+     * Object to hold state that defines a user session.  There is always a user session, even if not initialized
+     * from a "session" file.
+     */
+    private Session session;
+
+    /**
+     * Timer for triggering periodic autosave of current session
+     */
+    private Timer sessionAutosaveTimer = new Timer();
+
+    // Misc state
+
+    private RecentFileSet recentSessionList;
+    private RecentUrlsSet recentUrlsList;
+
+    // Vertical line that follows the mouse
+    private boolean rulerEnabled;
+
+    // Global "squish" state, toggled from the command bar.  When on, all tracks with rows are displayed in SQUISHED
+    // mode, including tracks loaded subsequently.  Individual tracks can still be overridden from their popup menus.
+    private boolean squishTracks = false;
+
+    public static IGV createInstance(Frame frame, Main.IGVArgs igvArgs) {
+        if (theInstance != null) {
+            throw new RuntimeException("Only a single instance is allowed.");
+        }
+        theInstance = new IGV(frame, igvArgs);
+        return theInstance;
+    }
+
+    public static IGV getInstance() {
+        if (theInstance == null) {
+            throw new RuntimeException("IGV has not been initialized.  Must call createInstance(Frame) first");
+        }
+        return theInstance;
+    }
+
+    public static boolean hasInstance() {
+        return theInstance != null;
+    }
+
+    // For unit testing
+    static void destroyInstance() {
+        IGVMenuBar.destroyInstance();
+        theInstance = null;
+    }
+
+    /**
+     * Creates new IGV
+     */
+    private IGV(Frame frame, Main.IGVArgs igvArgs) {
+
+        theInstance = this;
+
+        final IGVPreferences preferences = PreferencesManager.getPreferences();
+
+        session = new Session(null);
+
+        mainFrame = frame;
+
+        mainFrame.addWindowListener(new WindowAdapter() {
+
+            @Override
+            public void windowLostFocus(WindowEvent windowEvent) {
+                // Start & stop tooltip manager to force any tooltip windows to close.
+                ToolTipManager.sharedInstance().setEnabled(false);
+                ToolTipManager.sharedInstance().setEnabled(true);
+                IGVPopupMenu.closeAll();
+            }
+
+
+            @Override
+            public void windowDeactivated(WindowEvent windowEvent) {
+                // Start & stop tooltip manager to force any tooltip windows to close.
+                ToolTipManager.sharedInstance().setEnabled(false);
+                ToolTipManager.sharedInstance().setEnabled(true);
+                IGVPopupMenu.closeAll();
+            }
+
+            @Override
+            public void windowActivated(WindowEvent windowEvent) {
+
+            }
+
+            @Override
+            public void windowGainedFocus(WindowEvent windowEvent) {
+
+            }
+        });
+
+        // Create cursors
+        createHandCursor();
+        createZoomCursors();
+        createDragAndDropCursor();
+
+        // Create components
+        mainFrame.setTitle(UIConstants.APPLICATION_NAME);
+
+        if (mainFrame instanceof JFrame) {
+            JFrame jf = (JFrame) mainFrame;
+            rootPane = jf.getRootPane();
+        } else {
+            rootPane = new JRootPane();
+            mainFrame.add(rootPane);
+        }
+        rootPane.setDoubleBuffered(true);
+
+        contentPane = new IGVContentPane(this);
+        menuBar = IGVMenuBar.createInstance(this);
+
+        rootPane.setContentPane(contentPane);
+        rootPane.setJMenuBar(menuBar);
+        glassPane = rootPane.getGlassPane();
+        glassPane.setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+        // consumeEvents(glassPane);
+
+        mainFrame.pack();
+
+        //Certain components MUST be visible, so we set minimum size
+        //{@link MainPanel#addDataPanel}
+        mainFrame.setMinimumSize(new Dimension(300, 300));
+
+        // Set the application's previous location and size
+        // get the current main screen bounds
+        Dimension screenBounds = Toolkit.getDefaultToolkit().getScreenSize();
+        Rectangle applicationBounds = preferences.getApplicationFrameBounds();
+
+        // get info of all screens and store them into the array
+        GraphicsEnvironment graphEnv = GraphicsEnvironment.getLocalGraphicsEnvironment();
+        GraphicsDevice[] graphDev = graphEnv.getScreenDevices();
+        Rectangle[] boundsArr = new Rectangle[graphDev.length];
+
+        for (int i = 0; i < graphDev.length; ++i) {
+            GraphicsConfiguration curCon = graphDev[i].getDefaultConfiguration();
+            boundsArr[i] = curCon.getBounds();
+        }
+
+        //set a flag which indicates if the user preference is empty, or if the (x,y) in the user preference is not contained in any screen
+        //default is empty or not contained
+        boolean isNullOrNotContained = true;
+
+        if (applicationBounds != null) {
+            //Iterate over each screen value to find if there is currently a screen that can contain these values.
+            int userX = applicationBounds.x;
+            int userY = applicationBounds.y;
+            double userMaxX = applicationBounds.getMaxX();
+            double userMaxY = applicationBounds.getMaxY();
+            for (Rectangle curScreen : boundsArr) {
+                if (curScreen.contains(userX, userY)) {
+                    isNullOrNotContained = false;
+                    if (userMaxX >= curScreen.getMaxX() || userMaxY >= curScreen.getMaxY()) {
+                        applicationBounds = new Rectangle(curScreen.x, curScreen.y, Math.min(1150, curScreen.width), Math.min(800, curScreen.height));
+                    }
+                    break;
+                }
+            }
+        }
+        if (isNullOrNotContained) {
+            // user's preference is null or the (x,y) in user's preference is not contained in any screen
+            // set the application to the main screen
+            applicationBounds = new Rectangle(0, 0, Math.min(1150, screenBounds.width), Math.min(800, screenBounds.height));
+        }
+        mainFrame.setBounds(applicationBounds);
+
+        subscribeToEvents();
+
+
+        // Start running periodic autosaves (unless the user has specified not to retain timed autosaves)
+
+        if (PreferencesManager.getPreferences().getAsInt(Constants.AUTOSAVES_TO_KEEP) > 0) {
+            int timerDelay = PreferencesManager.getPreferences().getAsInt(AUTOSAVE_FREQUENCY) * 60000; // Convert timer delay to ms
+            sessionAutosaveTimer.scheduleAtFixedRate(new AutosaveTimerTask(this), timerDelay, timerDelay);
+        }
+    }
+
+    public static List<Track> getSelectedTracks() {
+        List<Track> selected = new ArrayList<>();
+        for (TrackPanel tp : getInstance().getTrackPanels()) {
+            TrackPanelScrollPane sp = tp.getScrollPane();
+            if (sp == null) continue;
+            TrackSelectionPanel selPanel = sp.getSelectionPanel();
+            if (selPanel != null && selPanel.isTrackSelected()) {
+                selected.add(tp.getTrack());
+            }
+        }
+        return selected;
+    }
+
+
+    public JRootPane getRootPane() {
+        return rootPane;
+    }
+
+    public Frame getMainFrame() {
+        return mainFrame;
+    }
+
+    public Dimension getPreferredSize() {
+        return UIConstants.preferredSize;
+    }
+
+
+    public void addRegionOfInterest(RegionOfInterest roi) {
+        session.addRegionOfInterest(roi);
+        RegionOfInterestPanel.setSelectedRegion(roi);
+        repaint();
+    }
+
+    public void beginROI(JButton button) {
+        for (TrackPanel tp : getTrackPanels()) {
+            TrackPanelScrollPane tsv = tp.getScrollPane();
+            DataPanelContainer dpc = tsv.getDataPanel();
+            for (Component c : dpc.getComponents()) {
+                if (c instanceof DataPanel) {
+                    DataPanel dp = (DataPanel) c;
+                    RegionOfInterestTool regionOfInterestTool = new RegionOfInterestTool(dp, button);
+                    dp.setCurrentTool(regionOfInterestTool);
+                }
+            }
+        }
+    }
+
+    public void endROI() {
+        for (TrackPanel tp : getTrackPanels()) {
+            DataPanelContainer dp = tp.getScrollPane().getDataPanel();
+            dp.setCurrentTool(null);
+        }
+    }
+
+    // Set the focus on the command bar search box
+    public void focusSearchBox() {
+        contentPane.getCommandBar().focusSearchBox();
+    }
+
+    public void enableExtrasMenu() {
+
+        menuBar.enableExtrasMenu();
+    }
+
+    /**
+     * Load a collection of tracks in a background thread.
+     * <p/>
+     * Note: Most of the code here is to adjust the scrollbars and split pane after loading
+     * Note: The method returns a Future, which most callers currently ignore.
+     *
+     * @param locators
+     */
+    public Future loadTracks(final Collection<ResourceLocator> locators) {
+
+        Future toRet = null;
+        if (locators != null && !locators.isEmpty()) {
+
+            contentPane.getStatusBar().setMessage("Loading ...");
+
+            NamedRunnable runnable = new NamedRunnable() {
+
+                public void run() {
+                    //Collect size statistics before loading
+                    List<Map<TrackPanelScrollPane, Integer>> trackPanelAttrs = getTrackPanelAttrs();
+
+                    final MessageCollection messages = new MessageCollection();
+                    for (final ResourceLocator locator : locators) {
+
+                        // If it's a local file, check explicitly for existence (rather than rely on exception)
+                        if (locator.isLocal()) {
+                            File trackSetFile = new File(locator.getPath());
+                            if (!trackSetFile.exists()) {
+                                messages.append("File not found: " + locator.getPath() + "\n");
+                                continue;
+                            }
+                        }
+
+                        try {
+                            List<Track> tracks = load(locator);
+                            addTracks(tracks);
+                        } catch (Exception e) {
+                            log.error("Error loading track", e);
+                            messages.append("Error loading " + locator + ": " + e.getMessage());
+                        }
+
+                    }
+                    if (!messages.isEmpty()) {
+                        if (Globals.isBatch()) {
+                            throw new DataLoadException(String.join("\n", messages.getMessages()));
+                        } else {
+                            MessageUtils.showErrorMessage(String.join("<br>", messages.getMessages()), null);
+                        }
+                    }
+
+                    //resetPanelHeights(trackPanelAttrs.get(0), trackPanelAttrs.get(1));
+                    showLoadedTrackCount();
+                    revalidateTrackPanels();
+                }
+
+                public String getName() {
+                    return "Load Tracks";
+                }
+            };
+
+            toRet = LongRunningTask.submit(runnable);
+        }
+        log.debug("Finish loadTracks");
+        return toRet;
+    }
+
+
+    /**
+     * Load a resource and return the tracks.  Does not add tracks to the igv instance
+     *
+     * @param locator
+     * @return A list of loaded tracks
+     */
+    public List<Track> load(ResourceLocator locator) throws DataLoadException {
+
+        try {
+            if (IGV.hasInstance()) {
+                IGV.getInstance().setStatusBarMessage3("Loading " + locator.getPath());
+            }
+
+            TrackLoader loader = new TrackLoader();
+            Genome genome = GenomeManager.getInstance().getCurrentGenome();
+            List<Track> newTracks = loader.load(locator, genome);
+            if (newTracks.size() > 0) {
+                for (Track track : newTracks) {
+                    TrackProperties properties = locator.getTrackProperties();
+                    if (properties != null) {
+                        track.setProperties(properties);
+                    }
+                }
+            }
+            return newTracks;
+        } finally {
+            if (IGV.hasInstance()) {
+                IGV.getInstance().setStatusBarMessage3("");
+            }
+        }
+    }
+
+
+    /**
+     * Add gene and sequence tracks.  This is called upon switching genomes.
+     *
+     * @param
+     */
+    public void setSequenceTrack() {
+
+        SequenceTrack newSeqTrack = new SequenceTrack("Reference sequence");
+        addTrackPanel(newSeqTrack);
+    }
+
+    /**
+     * @return First SequenceTrack found, or null if none
+     */
+    public SequenceTrack getSequenceTrack() {
+        for (Track t : getAllTracks()) {
+            if (t instanceof SequenceTrack) return (SequenceTrack) t;
+        }
+        return null;
+    }
+
+    public void removeTrackPanel(TrackPanel trackPanel) {
+        contentPane.getMainPanel().removeTrackPanel(trackPanel);
+    }
+
+    /**
+     * Remove the track from the view.  In contrast to deleteTracks, the track is not disposed and can be added
+     * back to the view later.
+     * @param track
+     */
+    public void removeTrack(Track track) {
+        List<TrackPanel> panels = getTrackPanels();
+        for (TrackPanel trackPanel : panels) {
+            if (trackPanel.getTrack() == track) {
+                track.setVisible(false);
+                removeTrackPanel(trackPanel);
+                break;
+            }
+        }
+    }
+
+
+    public void deleteTracksByPath(Set<String> paths) {
+        List<Track> toRemove = getAllTracks().stream().filter(t -> {
+            ResourceLocator locator = t.getResourceLocator();
+            String path = locator == null ? null : locator.getPath();
+            return path != null && paths.contains(path);
+        }).collect(Collectors.toList());
+        deleteTracks(toRemove);
+    }
+
+    /**
+     * Remove tracks from the view.  In contrast to deleteTracks, the tracks are not disposed and can be added
+     * back to the view later.
+     *
+     * @param tracksToRemove
+     */
+    public void removeTracks(Collection<? extends Track> tracksToRemove) {
+
+        // Make copy of list as we will be modifying the original in the loop
+        List<TrackPanel> panels = new ArrayList<>(getTrackPanels());
+        for (TrackPanel trackPanel : panels) {
+            trackPanel.removeTracks(tracksToRemove);
+            if (!trackPanel.hasTracks()) {
+                removeTrackPanel(trackPanel);
+            }
+        }
+
+        for (Track t : tracksToRemove) {
+            if (t instanceof IGVEventObserver) {
+                IGVEventBus.getInstance().unsubscribe((IGVEventObserver) t);
+            }
+            t.unload();
+        }
+
+        revalidateTrackPanels();
+    }
+
+    /**
+     * Remove and dispose of tracks.  Removed tracks will not be usable afterwards.
+     *
+     * @param tracksToRemove
+     */
+    public void deleteTracks(Collection<? extends Track> tracksToRemove) {
+
+        for (Track t : tracksToRemove) {
+            t.unload();
+        }
+        removeTracks(tracksToRemove);
+    }
+
+
+    /**
+     * Return the panel with the given name.  This is called infrequently, and doesn't need to be fast (linear
+     * search is fine).
+     *
+     * @param name
+     * @return
+     */
+    public TrackPanel getTrackPanel(String name) {
+//        for (TrackPanel sp : getTrackPanels()) {
+//            if (name.equals(sp.getName())) {
+//                return sp;
+//            }
+//        }
+//
+//        // If we get this far this is a new panel
+//        TrackPanelScrollPane sp = addDataPanel(name);
+//        return sp.getTrackPanel();
+        throw new RuntimeException("Not implemented");
+    }
+
+
+    /**
+     * Return an ordered list of track panels.
+     */
+    public List<TrackPanel> getTrackPanels() {
+        return contentPane.getMainPanel().getTrackPanels();
+    }
+
+
+    /**
+     * Add the specified tracks to the appropriate panel. Tracks are inserted at positions based on their
+     * order property, maintaining ascending order.
+     */
+    public void addTracks(List<Track> trackList) {
+        for (var track : trackList) {
+            addTrackPanel(track);
+        }
+    }
+
+    public void addTrack(Track track) {
+        addTrackPanel(track);
+    }
+
+    /**
+     * Add a track panel at the position determined by the track's order property.
+     * Tracks are inserted to maintain ascending order by the order property.
+     */
+    public void addTrackPanel(Track track) {
+        if (squishTracks && track.hasRows()) {
+            track.setDisplayMode(Track.DisplayMode.SQUISHED);
+        }
+        contentPane.getMainPanel().addTrackPanel(track);
+    }
+
+
+    public int getVisibleTrackCount() {
+        int count = 0;
+        for (TrackPanel tsv : getTrackPanels()) {
+            count += tsv.getVisibleTrackCount();
+        }
+        return count;
+    }
+
+    /**
+     * Return the list of all tracks in the order they appear on the screen
+     *
+     * @return
+     */
+    public List<Track> getAllTracks() {
+        List<Track> allTracks = new ArrayList<Track>();
+        for (TrackPanel tp : getTrackPanels()) {
+            allTracks.addAll(tp.getTracks());
+        }
+        return allTracks;
+    }
+
+    public void clearTrackPanels() {
+        contentPane.getMainPanel().clearTrackPanels();
+    }
+
+    public List<FeatureTrack> getFeatureTracks() {
+        return Lists.newArrayList(Iterables.filter(getAllTracks(), FeatureTrack.class));
+    }
+
+    public List<DataTrack> getDataTracks() {
+        return Lists.newArrayList(Iterables.filter(getAllTracks(), DataTrack.class));
+    }
+
+    public List<AlignmentTrack> getAlignmentTracks() {
+        return Lists.newArrayList(Iterables.filter(getAllTracks(), AlignmentTrack.class));
+    }
+
+
+    /**
+     * Return the complete set of unique DataResourceLocators currently loaded
+     *
+     * @return
+     */
+    public Set<ResourceLocator> getDataResourceLocators() {
+        HashSet<ResourceLocator> locators = new HashSet();
+
+        for (Track track : getAllTracks()) {
+            Collection<ResourceLocator> tlocators = track.getResourceLocators();
+
+            if (tlocators != null) {
+                locators.addAll(tlocators);
+            }
+        }
+        locators.remove(null);
+        return locators;
+
+    }
+
+
+    public Set<DataType> getLoadedTypes() {
+        Set<DataType> types = new HashSet<>();
+        for (Track t : getAllTracks()) {
+            if (t != null) {
+                DataType type = t.getDataType();
+                types.add(type);
+            }
+        }
+        return types;
+    }
+
+
+    public Set<String> getLoadedPaths() {
+        return getDataResourceLocators().stream()
+                .map(rl -> rl.getPath())
+                .collect(Collectors.toSet());
+    }
+
+
+    public void setAllTrackHeights(int newHeight) {
+        for (Track track : getAllTracks()) {
+            track.setHeight(newHeight);
+        }
+    }
+
+    public void minimizeTrackHeights() {
+        List<Track> tracks = getAllTracks();
+        for (Track t : tracks) {
+            t.minimizeHeight();
+        }
+        repaint(tracks);
+    }
+
+    /**
+     * Set the global "squish" state.  All tracks with rows are set to SQUISHED (on) or EXPANDED (off).  While on,
+     * newly loaded tracks with rows are squished as well.
+     */
+    public void setSquishTracks(boolean squishTracks) {
+        this.squishTracks = squishTracks;
+        Track.DisplayMode mode = squishTracks ? Track.DisplayMode.SQUISHED : Track.DisplayMode.EXPANDED;
+        List<Track> tracks = getAllTracks();
+        for (Track t : tracks) {
+            if (t.hasRows()) {
+                t.setDisplayMode(mode);
+            }
+        }
+        repaint(tracks);
+    }
+
+    public boolean isSquishTracks() {
+        return squishTracks;
+    }
+
+    public Session getSession() {
+        return session;
+    }
+
+
+    /**
+     * Reset session state, and associate the session object with the given path to a session file.
+     *
+     * @param sessionPath
+     */
+    public void resetSession(String sessionPath) {
+
+        session.reset(sessionPath);
+        if (FrameManager.getFrames().size() > 1) {
+            resetFrames();
+        }
+        for(ReferenceFrame frame : FrameManager.getFrames()) {
+            frame.setExpandedInsertion(null);
+        }
+        InsertionManager.getInstance().clear();
+        AttributeManager.getInstance().clearAllAttributes();
+        mainFrame.setTitle(sessionPath == null ? UIConstants.APPLICATION_NAME : sessionPath);
+        menuBar.resetSessionActions();
+        contentPane.getMainPanel().clearTrackPanels();
+        revalidateTrackPanels();
+    }
+
+
+    /**
+     * Creates a new IGV session
+     */
+    public void newSession() {
+        resetSession(null);
+        Genome currentGenome = GenomeManager.getInstance().getCurrentGenome();
+        String id = currentGenome.getId();
+        try {
+            GenomeManager.getInstance().loadGenomeById(id, true);
+        } catch (IOException e) {
+            log.info("Failed to load genome with id " + id);
+            GenomeManager.getInstance().setCurrentGenome(currentGenome);
+            GenomeManager.getInstance().restoreGenomeTracks(currentGenome);
+        }
+
+        menuBar.resetSessionActions();
+        goToLocus(GenomeManager.getInstance().getCurrentGenome().getHomeChromosome());
+        revalidateTrackPanels();
+    }
+
+
+    /**
+     * Load a session file, then jump to the specified locus if supplied.  This runs in the current thread, and should
+     * not be called from the event dispatch thread.
+     *
+     * @param sessionPath
+     * @param locus
+     * @return true if successful
+     */
+    public boolean loadSession(String sessionPath, String locus) {
+
+        InputStream inputStream = null;
+        try {
+            setStatusBarMessage("Opening session...");
+
+            inputStream = new BufferedInputStream(ParsingUtils.openInputStreamGZ(new ResourceLocator(sessionPath)));
+            boolean success = loadSessionFromStream(sessionPath, inputStream);
+
+            if (success) {
+
+                session.setPath(sessionPath);
+
+                String searchText = locus == null ? session.getLocus() : locus;
+                if (!FrameManager.isGeneListMode() && searchText != null && searchText.trim().length() > 0) {
+                    goToLocus(searchText);
+                }
+
+                mainFrame.setTitle(UIConstants.APPLICATION_NAME + " - Session: " + sessionPath);
+
+                getRecentSessionList().add(sessionPath);
+                menuBar.resetSessionActions();
+
+                //If there's a RegionNavigatorDialog, kill it.
+                //this could be done through the Observer that RND uses, I suppose.  Not sure that's cleaner
+                RegionNavigatorDialog.destroyInstance();
+            }
+
+            return success;
+
+        } catch (Exception e) {
+            String message = "Error loading session session: " + e.getMessage();
+            MessageUtils.showMessage(message);
+            getRecentSessionList().remove(sessionPath);
+            log.error(e);
+            return false;
+        } finally {
+            if (inputStream != null) {
+                try {
+                    inputStream.close();
+                } catch (IOException iOException) {
+                    log.error("Error closing session stream", iOException);
+                }
+            }
+            resetStatusMessage();
+        }
+    }
+
+    /**
+     * Load a session from the input stream.  Currently there are
+     * 2 sources for the input stream (1) a local or remote file, and (2) an in memory byte array.  The latter is
+     * used to support the "reloadTracks" menu function.
+     *
+     * @param sessionPath
+     * @param inputStream
+     * @return
+     * @throws IOException
+     */
+
+    public boolean loadSessionFromStream(String sessionPath, InputStream inputStream) throws IOException {
+
+        final SessionReader sessionReader;
+        if (sessionPath != null && (sessionPath.endsWith(".session") || sessionPath.endsWith(".session.txt"))) {
+            sessionReader = new UCSCSessionReader(this);
+        } else if (sessionPath != null && (sessionPath.endsWith(".idxsession") || sessionPath.endsWith(".idxsession.txt"))) {
+            sessionReader = new IndexAwareSessionReader(this);
+        } else if (sessionPath != null && sessionPath.endsWith(".json")) {
+            sessionReader = new JSONSessionReader(this);
+        } else {
+            sessionReader = new XMLSessionReader(this);
+        }
+
+        sessionReader.loadSession(inputStream, session, sessionPath);
+
+        revalidateTrackPanels();
+        return true;
+    }
+
+
+    /**
+     * Saves current session to {@code targetFile}. As a side effect,
+     * sets the current sessions path (does NOT set the last session directory)
+     *
+     * @param targetFile
+     * @throws IOException
+     */
+    public void saveSession(File targetFile) throws IOException {
+        (new JSONSessionWriter(this)).saveSession(session, targetFile);
+
+        String sessionPath = targetFile.getAbsolutePath();
+        session.setPath(sessionPath);
+        mainFrame.setTitle(UIConstants.APPLICATION_NAME + " - Session: " + sessionPath);
+
+        getRecentSessionList().add(sessionPath);
+        menuBar.resetSessionActions();
+
+        // No errors so save last location
+        PreferencesManager.getPreferences().setLastTrackDirectory(targetFile.getParentFile());
+
+    }
+
+
+    /**
+     * Cet current track count per panel.  Needed to detect which panels
+     * changed.  Also record panel sizes
+     *
+     * @return A 2 element list: 0th element is a map from scrollpane -> number of tracks,
+     * 1st element is a map from scrollpane -> track height (in pixels)
+     */
+    public List<Map<TrackPanelScrollPane, Integer>> getTrackPanelAttrs() {
+        Map<TrackPanelScrollPane, Integer> trackCountMap = new HashMap();
+        Map<TrackPanelScrollPane, Integer> panelSizeMap = new HashMap();
+        for (TrackPanel tp : getTrackPanels()) {
+            TrackPanelScrollPane sp = tp.getScrollPane();
+            trackCountMap.put(sp, sp.getDataPanel().getAllTracks().size());
+            panelSizeMap.put(sp, sp.getDataPanel().getHeight());
+        }
+        return Arrays.asList(trackCountMap, panelSizeMap);
+    }
+
+
+    public void setGeneList(GeneList geneList) {
+        setGeneList(geneList, true);
+    }
+
+    public void setGeneList(final GeneList geneList, final boolean recordHistory) {
+
+        final CursorToken token = WaitCursorManager.showWaitCursor();
+
+        UIUtilities.invokeOnEventThread(new NamedRunnable() {
+            public void run() {
+                try {
+                    if (geneList == null) {
+                        session.setCurrentGeneList(null);
+                    } else {
+                        if (recordHistory) {
+                            session.getHistory().push("List: " + geneList.getName(), 0);
+                        }
+                        session.setCurrentGeneList(geneList);
+                    }
+                    resetFrames();
+                } finally {
+                    WaitCursorManager.removeWaitCursor(token);
+
+                }
+            }
+
+            public String getName() {
+                return "Set gene list";
+            }
+        });
+    }
+
+    public void setDefaultFrame(String searchString) {
+        FrameManager.setToDefaultFrame(searchString);
+        resetFrames();
+    }
+
+
+    final public void doViewPreferences() {
+        try {
+            PreferencesEditor.open(this.mainFrame);
+        } catch (Exception e) {
+            log.error("Error opening preference dialog", e);
+        }
+    }
+
+    final public void saveStateForExit() {
+
+        // Store recent sessions
+        RecentFileSet recentSessions = getRecentSessionList();
+        if (!recentSessions.isEmpty()) {
+            PreferencesManager.getPreferences().setRecentSessions(recentSessions.asString());
+        }
+
+        // Store recent files
+        RecentUrlsSet recentUrls = getRecentUrls();
+        if (!recentUrls.isEmpty()) {
+            PreferencesManager.getPreferences().setRecentUrls(recentUrls.asString());
+        }
+
+        // Stop the timer that is triggering the timed autosave
+        this.stopTimedAutosave();
+
+        // Autosave current session if configured to do so
+        if (PreferencesManager.getPreferences().getAsBoolean(AUTOSAVE_ON_EXIT)) {
+            try {
+                SessionAutosaveManager.saveExitSessionAutosaveFile(session);
+            } catch (Exception e) {
+                log.error("Error autosaving session", e);
+            }
+        }
+
+
+    }
+
+    final public void doShowAttributeDisplay(boolean enableAttributeView) {
+
+        boolean oldState = PreferencesManager.getPreferences().getAsBoolean(SHOW_ATTRIBUTE_VIEWS_KEY);
+
+        // First store the newly requested state
+        if (oldState != enableAttributeView) {
+            PreferencesManager.getPreferences().setShowAttributeView(enableAttributeView);
+            repaint();
+        }
+    }
+
+
+    /**
+     * Set the attributes to show in the attribute panel for this session.
+     */
+    final public void doSelectDisplayableAttribute() {
+
+        List<String> allAttributes = AttributeManager.getInstance().getAttributeNames();
+        Set<String> hiddenAttributes = IGV.getInstance().getSession().getHiddenAttributes();
+        final CheckListDialog dlg = new CheckListDialog(mainFrame, allAttributes, hiddenAttributes, false);
+        dlg.setVisible(true);
+
+        if (!dlg.isCanceled()) {
+            IGV.getInstance().getSession().setHiddenAttributes(dlg.getNonSelections());
+            revalidateTrackPanels();
+        }
+    }
+
+
+    final public void saveImage(Component target, String extension) {
+        saveImage(target, "igv_snapshot", extension);
+    }
+
+    final public void saveImage(Component target, String title, String extension) {
+        if ("png".equalsIgnoreCase(extension) || "svg".equalsIgnoreCase(extension)) {
+            contentPane.getStatusBar().setMessage("Creating image...");
+            File defaultFile = new File(title + "." + extension);
+            createSnapshot(target, defaultFile);
+        }
+    }
+
+    final public void createSnapshot(final Component target, final File defaultFile) {
+
+        File file = selectSnapshotFile(defaultFile);
+        if (file == null) {
+            return;
+        }
+
+        CursorToken token = null;
+        try {
+            token = WaitCursorManager.showWaitCursor();
+            contentPane.getStatusBar().setMessage("Exporting image: " + defaultFile.getAbsolutePath());
+            String msg = createSnapshotNonInteractive(target, file, false);
+            if (msg != null && msg.toLowerCase().startsWith("error")) {
+                MessageUtils.showMessage(msg);
+            }
+        } catch (Exception e) {
+            log.error("Error creating exporting image ", e);
+            MessageUtils.showMessage(("Error creating the image file: " + defaultFile + "<br> "
+                    + e.getMessage()));
+        } finally {
+            if (token != null) WaitCursorManager.removeWaitCursor(token);
+            resetStatusMessage();
+        }
+
+    }
+
+    /**
+     * Create a snapshot image of {@code target} and save it to {@code file}. The file type of the exported
+     * snapshot will be chosen by the extension of {@code file}, which must be a supported type.
+     *
+     * @param target
+     * @param file
+     * @throws IOException
+     * @api
+     * @see ImageFileTypes.Type
+     */
+    public String createSnapshotNonInteractive(Component target, File file, boolean batch) throws Exception {
+
+        log.debug("Creating snapshot: " + file.getName());
+
+        String extension = FileUtils.getFileExtension(file.getAbsolutePath());
+
+        if (extension == null) {
+            extension = ".png";
+            file = new File(file.getAbsolutePath() + extension);
+        }
+
+        ImageFileTypes.Type type = ImageFileTypes.getImageFileType(extension);
+
+        if (type == ImageFileTypes.Type.NULL) {
+            String message = "ERROR: Unknown file extension " + extension;
+            log.error(message);
+            return message;
+        } else if (type == ImageFileTypes.Type.EPS || type == ImageFileTypes.Type.JPEG) {
+            String message = "ERROR: " + type + " output is not supported.  Try '.png' or '.svg'";
+            log.error(message);
+            return message;
+        }
+
+        try {
+            return SnapshotUtilities.doComponentSnapshot(target, file, type, batch);
+        } finally {
+            log.debug("Finished creating snapshot: " + file.getName());
+        }
+    }
+
+    public File selectSnapshotFile(File defaultFile) {
+
+        File snapshotDirectory = PreferencesManager.getPreferences().getLastSnapshotDirectory();
+
+        // JFileChooser fc = new SnapshotFileChooser(snapshotDirectory, defaultFile);
+        FileDialog fc = new FileDialog(mainFrame, "Save image", FileDialog.SAVE);
+        if (snapshotDirectory != null) {
+            fc.setDirectory(snapshotDirectory.getAbsolutePath());
+        }
+        fc.setFile(defaultFile.getName());
+        fc.setFilenameFilter((dir, name) ->
+                name.endsWith(".jpeg") || name.endsWith(".jpg") || name.endsWith(".png") || name.endsWith(".svg"));
+        fc.setVisible(true);
+        String file = fc.getFile();
+        // If a file selection was made
+        if (file != null) {
+            String directory = fc.getDirectory();
+            if (directory != null) {
+                PreferencesManager.getPreferences().setLastSnapshotDirectory(directory);
+            }
+            return new File(directory, file);
+        } else {
+            return null;
+        }
+    }
+
+
+    private void createZoomCursors() throws HeadlessException, IndexOutOfBoundsException {
+        if (zoomInCursor == null || zoomOutCursor == null) {
+            final Image zoomInImage = IconFactory.getInstance().getIcon(IconFactory.IconID.ZOOM_IN).getImage();
+            final Image zoomOutImage = IconFactory.getInstance().getIcon(IconFactory.IconID.ZOOM_OUT).getImage();
+            final Point hotspot = new Point(10, 10);
+            zoomInCursor = createCustomCursor(zoomInImage, hotspot, "Zoom in", Cursor.CROSSHAIR_CURSOR);
+            zoomOutCursor = createCustomCursor(zoomOutImage, hotspot, "Zoom out", Cursor.DEFAULT_CURSOR);
+
+        }
+
+    }
+
+
+    private void createHandCursor() throws HeadlessException, IndexOutOfBoundsException {
+
+        if (fistCursor == null) {
+            final BufferedImage handImage = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
+
+            // Make backgroun transparent
+            Graphics2D g = handImage.createGraphics();
+            g.setComposite(AlphaComposite.getInstance(
+                    AlphaComposite.CLEAR, 0.0f));
+            Rectangle2D.Double rect = new Rectangle2D.Double(0, 0, 32, 32);
+            g.fill(rect);
+
+            // Draw hand image in middle
+            g = handImage.createGraphics();
+            boolean ready = g.drawImage(IconFactory.getInstance().getIcon(IconFactory.IconID.FIST).getImage(), 0, 0, new ImageObserver() {
+                @Override
+                public boolean imageUpdate(Image img, int infoflags, int x, int y, int width, int height) {
+                    if ((infoflags & ImageObserver.ALLBITS) != 0) {
+                        // Image is ready
+                        fistCursor = createCustomCursor(handImage, new Point(8, 6), "Move", Cursor.HAND_CURSOR);
+                        return false;
+                    } else {
+                        return true;
+                    }
+                }
+            });
+            if (ready) {
+                try {
+                    fistCursor = createCustomCursor(handImage, new Point(8, 6), "Move", Cursor.HAND_CURSOR);
+                } catch (Exception e) {
+                    log.warn("Warning: could not create fistCursor");
+                    fistCursor = Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR);
+                }
+
+            }
+
+        }
+
+    }
+
+    private void createDragAndDropCursor()
+            throws HeadlessException, IndexOutOfBoundsException {
+
+        if (dragNDropCursor == null) {
+            ImageIcon icon = IconFactory.getInstance().getIcon(IconFactory.IconID.DRAG_AND_DROP);
+
+            int width = icon.getIconWidth();
+            int height = icon.getIconHeight();
+
+            final BufferedImage dragNDropImage =
+                    new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+
+            // Make background transparent
+            Graphics2D g = dragNDropImage.createGraphics();
+            g.setComposite(AlphaComposite.getInstance(AlphaComposite.CLEAR, 0.0f));
+            Rectangle2D.Double rect = new Rectangle2D.Double(0, 0, width, height);
+            g.fill(rect);
+
+            // Draw DND image
+            g = dragNDropImage.createGraphics();
+            Image image = icon.getImage();
+            boolean ready = g.drawImage(image, 0, 0, new ImageObserver() {
+                @Override
+                public boolean imageUpdate(Image img, int infoflags, int x, int y, int width, int height) {
+                    if ((infoflags & ImageObserver.ALLBITS) != 0) {
+                        // Image is ready
+                        dragNDropCursor = createCustomCursor(dragNDropImage, new Point(0, 0), "Drag and Drop", Cursor.CROSSHAIR_CURSOR);
+                        return false;
+
+                    } else {
+                        return true;
+                    }
+                }
+            });
+            if (ready) {
+                dragNDropCursor = createCustomCursor(dragNDropImage, new Point(0, 0), "Drag and Drop", Cursor.DEFAULT_CURSOR);
+            }
+        }
+    }
+
+
+    private Cursor createCustomCursor(Image image, Point hotspot, String name, int defaultCursor) {
+        try {
+            return mainFrame.getToolkit().createCustomCursor(image, hotspot, name);
+        } catch (Exception e) {
+            log.warn("Could not create cursor: " + name);
+            return Cursor.getPredefinedCursor(defaultCursor);
+        }
+    }
+
+    private void subscribeToEvents() {
+        IGVEventBus.getInstance().subscribe(ViewChange.class, this);
+        IGVEventBus.getInstance().subscribe(InsertionSelectionEvent.class, this);
+        IGVEventBus.getInstance().subscribe(GenomeChangeEvent.class, this);
+    }
+
+    /**
+     * Set the status bar message.  If the message equals "Done." intercept
+     * and reset to the default "quite" message,  currently the number of tracks
+     * loaded.
+     *
+     * @param message
+     */
+    public void setStatusBarMessage(String message) {
+        if (message.equals("Done.")) {
+            resetStatusMessage();
+        }
+        contentPane.getStatusBar().setMessage(message);
+    }
+
+    public void setStatusBarMessag2(String message) {
+        contentPane.getStatusBar().setMessage2(message);
+    }
+
+    public void setStatusBarMessage3(String message) {
+        contentPane.getStatusBar().setMessage3(message);
+    }
+
+    public void enableStopButton(boolean enable) {
+        contentPane.getStatusBar().enableStopButton(enable);
+    }
+
+    /**
+     * Resets factory settings. this is not the same as reset user defaults
+     * DO NOT DELETE used when debugging
+     */
+    public void resetToFactorySettings() {
+
+        try {
+            PreferencesManager.getPreferences().clear();
+            boolean isShow = PreferencesManager.getPreferences().getAsBoolean(SHOW_ATTRIBUTE_VIEWS_KEY);
+            doShowAttributeDisplay(isShow);
+            Preferences prefs = Preferences.userNodeForPackage(Globals.class);
+            prefs.remove(DirectoryManager.IGV_DIR_USERPREF);
+            repaint();
+
+        } catch (Exception e) {
+            String message = "Failure while resetting preferences!";
+            log.error(message, e);
+            MessageUtils.showMessage(message + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Scroll panel(s) containing track with specified name to the top.  Supports batch command "scrolltotrack" *
+     *
+     * @param trackName
+     * @return
+     */
+    public boolean scrollToTrack(String trackName) {
+        boolean found = false;
+        for (TrackPanel tp : getTrackPanels()) {
+            for (Track track : tp.getTracks()) {
+                if (track.getName().equals(trackName)) {
+                    TrackPanelScrollPane scrollPane = tp.getScrollPane();
+                    if (scrollPane != null) {
+                        // Scroll so this TrackPanelScrollPane aligns with the top of the viewport
+                        Rectangle bounds = scrollPane.getBounds();
+                        getMainPanel().getTrackPanelContainer().scrollRectToVisible(
+                                new Rectangle(bounds.x, bounds.y, bounds.width, 1));
+                        found = true;
+                    }
+                }
+            }
+        }
+        return found;
+    }
+
+
+    /**
+     * Scroll to the top (position 0).  Supports batch command "scrolltotop"
+     *
+     * @return
+     */
+    public void scrollToTop() {
+        getMainPanel().getTrackPanelContainer().scrollRectToVisible(new Rectangle(0, 0, 1, 1));
+    }
+
+    /**
+     * Reset the default status message, which is the number of tracks loaded.
+     */
+    public void resetStatusMessage() {
+        UIUtilities.invokeAndWaitOnEventThread(() -> contentPane.getStatusBar().setMessage("" +
+                getVisibleTrackCount() + " tracks loaded"));
+
+    }
+
+    public void showLoadedTrackCount() {
+
+        final int visibleTrackCount = getVisibleTrackCount();
+        contentPane.getStatusBar().setMessage("" +
+                visibleTrackCount + (visibleTrackCount == 1 ? " track" : " tracks"));
+    }
+
+    private void closeWindow(final ProgressBar.ProgressDialog progressDialog) {
+        UIUtilities.invokeOnEventThread(() -> progressDialog.setVisible(false));
+    }
+
+    /**
+     * Jump to a locus synchronously. {@code locus} can be any valid search term,
+     * including gene names. Genomic coordinates (e.g. "chr5:500-1000") are recommended
+     * Used for port command options
+     *
+     * @param locus
+     * @api
+     */
+    public void goToLocus(String locus) {
+        contentPane.getCommandBar().searchByLocus(locus);
+    }
+
+    public MainPanel getMainPanel() {
+        return contentPane.getMainPanel();
+    }
+
+    public RecentFileSet getRecentSessionList() {
+        if (recentSessionList == null) {
+            recentSessionList = PreferencesManager.getPreferences().getRecentSessions();
+            //remove sessions that no longer exist
+            recentSessionList.removeIf(file -> !(new File(file)).exists());
+        }
+        return recentSessionList;
+    }
+
+    public RecentUrlsSet getRecentUrls() {
+        if (recentUrlsList == null) {
+            recentUrlsList = PreferencesManager.getPreferences().getRecentUrls();
+        }
+        return recentUrlsList;
+    }
+
+    /**
+     * Add new values to the recent URLS set.  Calling this method rather than adding them directly
+     * allows showing the menu when the first URL is added to the collection.
+     * @param toAdd
+     */
+    public void addToRecentUrls(Collection<ResourceLocator> toAdd) {
+        RecentUrlsSet recentFiles = getRecentUrls();
+        recentFiles.addAll(toAdd);
+        if (!recentFiles.isEmpty()) {
+            menuBar.showRecentFilesMenu();
+        }
+    }
+
+
+    public IGVContentPane getContentPane() {
+        return contentPane;
+    }
+
+    public boolean isShowDetailsOnClick() {
+        return contentPane != null && contentPane.getCommandBar().getDetailsBehavior() == ShowDetailsBehavior.CLICK;
+    }
+
+    public boolean isShowDetailsOnHover() {
+        return contentPane != null && contentPane.getCommandBar().getDetailsBehavior() == ShowDetailsBehavior.HOVER;
+    }
+
+    /////////////////////////////////////////////////////////////////////////////////////////
+    // Sorting
+
+
+    /**
+     * Sort all groups (data and feature) by attribute value(s).  Tracks are
+     * sorted within groups.
+     *
+     * @param attributeNames
+     * @param ascending
+     */
+    public void sortAllTracksByAttributes(final String attributeNames[], final boolean[] ascending) {
+
+        assert attributeNames.length == ascending.length;
+
+        for (Track track : getAllTracks()) {
+            if (track instanceof AbstractTrack && ((AbstractTrack) track).hasSamples()) {
+                ((AbstractTrack) track).sortSamplesByAttributes(attributeNames, ascending);
+            }
+        }
+
+    }
+
+
+    /**
+     * Sort all groups (data and feature) by a computed score over a region.  The
+     * sort is done twice (1) groups are sorted with the featureGroup, and (2) the
+     * groups themselves are sorted.
+     *
+     * @param region
+     * @param type
+     * @param frame
+     */
+    public void sortByRegionScore(RegionOfInterest region,
+                                  final RegionScoreType type,
+                                  final ReferenceFrame frame) {
+
+        final RegionOfInterest r = region == null ? new RegionOfInterest(frame.getChrName(), (int) frame.getOrigin(),
+                (int) frame.getEnd() + 1, frame.getName()) : region;
+
+        // Create a rank order of samples.  This is done globally so sorting is consistent across groups and panels.
+        final List<String> sortedSamples = sortSamplesByRegionScore(r, type, frame);
+        for (TrackPanel trackPanel : getTrackPanels()) {
+            trackPanel.sortByRegionsScore(r, type, frame, sortedSamples);
+        }
+
+
+        // Sort samples within each track
+        for (Track t : getAllTracks()) {
+            t.sortSamplesByValue(r.getChr(), r.getStart(), r.getEnd(), type);
+        }
+
+        repaint();
+    }
+
+
+    /**
+     * Sort a collection of tracks by a score over a region.
+     *
+     * @param region
+     * @param type
+     * @param frame
+     */
+    private List<String> sortSamplesByRegionScore(final RegionOfInterest region,
+                                                  final RegionScoreType type,
+                                                  final ReferenceFrame frame) {
+
+        // Get the sortable tracks for this score (data) type
+        final List<Track> allTracks = getAllTracks();
+        final List<Track> tracksWithScore = new ArrayList(allTracks.size());
+        for (Track t : allTracks) {
+            if (t.isRegionScoreType(type)) {
+                tracksWithScore.add(t);
+            }
+        }
+
+        // Sort the "sortable" tracks
+        sortByRegionScore(tracksWithScore, region, type, frame);
+
+        // Now get sample order from sorted tracks, use to sort (tracks which do not implement the selected "sort by" score)
+        List<String> sortedSamples = new ArrayList(tracksWithScore.size());
+        for (Track t : tracksWithScore) {
+            String att = t.getSample(); //t.getAttributeValue(linkingAtt);
+            if (att != null) {
+                sortedSamples.add(att);
+            }
+
+        }
+
+        return sortedSamples;
+    }
+
+    static void sortByRegionScore(List<Track> tracks,
+                                  final RegionOfInterest region,
+                                  final RegionScoreType type,
+                                  ReferenceFrame frame) {
+        if ((tracks != null) && (region != null) && !tracks.isEmpty()) {
+            final String frameName = frame != null ? frame.getName() : null;
+            int tmpzoom = frame != null ? frame.getZoom() : 0;
+            final int zoom = Math.max(0, tmpzoom);
+            final String chr = region.getChr();
+            final int start = region.getStart();
+            final int end = region.getEnd();
+
+            Comparator<Track> c = (t1, t2) -> {
+                try {
+                    if (t1 == null && t2 == null) return 0;
+                    if (t1 == null) return 1;
+                    if (t2 == null) return -1;
+
+                    float s1 = t1.getRegionScore(chr, start, end, zoom, type, frameName);
+                    float s2 = t2.getRegionScore(chr, start, end, zoom, type, frameName);
+
+                    return Float.compare(s2, s1);
+
+
+                } catch (Exception e) {
+                    log.error("Error sorting tracks. Sort might not be accurate.", e);
+                    return 0;
+                }
+
+            };
+            Collections.sort(tracks, c);
+
+        }
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////
+    // Startup
+    public Future startUp(Main.IGVArgs igvArgs) {
+
+        if (log.isDebugEnabled()) {
+            log.debug("startUp");
+        }
+
+        return LongRunningTask.submit(new StartupRunnable(igvArgs));
+    }
+
+    public void setRulerEnabled(boolean rulerEnabled) {
+        this.rulerEnabled = rulerEnabled;
+    }
+
+    public boolean isRulerEnabled() {
+        return rulerEnabled;
+    }
+
+    /**
+     * Enables command port early, otherwise private URLs pointing to custom genomes cannot be accessed.
+     * This is because CommandListener (http://localhost:65301) is needed for OAuth's redirect parameter.
+     *
+     * @param igvArgs: Used to specify a different port.
+     */
+    private static void startCommandsServer(Main.IGVArgs igvArgs, IGVPreferences prefMgr) {
+        // Port # can be overriden with "-p" command line switch
+        boolean portEnabled = prefMgr.getAsBoolean(PORT_ENABLED);
+        String portString = igvArgs.getPort();
+
+        if (portEnabled || portString != null) {
+            // Command listener thread
+            int port = prefMgr.getAsInt(PORT_NUMBER);
+            if (portString != null) {
+                port = Integer.parseInt(portString);
+            }
+            CommandListener.start(port);
+        }
+    }
+
+    /**
+     * Swing worker class to startup IGV
+     */
+    public class StartupRunnable implements Runnable {
+
+        Main.IGVArgs igvArgs;
+
+        StartupRunnable(Main.IGVArgs args) {
+            this.igvArgs = args;
+        }
+
+        @Override
+        public void run() {
+
+            final IGVPreferences preferences = PreferencesManager.getPreferences();
+
+            // Start CommandsServer **before** loading the initial genome, as credentials might need to be set for
+            // privately hosted genomes.
+            startCommandsServer(igvArgs, preferences);
+
+            UIUtilities.invokeAndWaitOnEventThread(() -> {
+                mainFrame.setIconImage(getIconImage());
+                if (Globals.IS_MAC) {
+                    setAppleDockIcon();
+                }
+                mainFrame.setVisible(true);
+            });
+
+            // Load the initial genome.
+            final boolean runningBatch = igvArgs.getBatchFile() != null;
+
+            if (runningBatch) {
+
+                BatchRunner.setIsBatchMode(true);
+
+                UIUtilities.invokeAndWaitOnEventThread(() -> {
+                    try {
+                        String genomeId = preferences.getDefaultGenome();
+                        BatchRunner batchRunner = (new BatchRunner(igvArgs.getBatchFile(), IGV.this));
+                        batchRunner.runWithDefaultGenome(genomeId);
+                    } catch (IOException e) {
+                        BatchRunner.setIsBatchMode(false);
+                        MessageUtils.showMessage(Level.ERROR, "Error running batch script: " + e.getMessage());
+                    } finally {
+                        BatchRunner.setIsBatchMode(false);
+                    }
+                });
+            } else {
+                // Check whether autosave is set to load and exists
+                boolean autosavePresent = false;
+                try {
+                    autosavePresent = SessionAutosaveManager.getMostRecentAutosaveFile().isPresent();
+                } catch (Exception e) {
+                    log.error("Failure trying to get most recent autosave file", e);
+                }
+                boolean loadAutosave = autosavePresent && PreferencesManager.getPreferences().getAsBoolean(AUTOLOAD_LAST_AUTOSAVE);
+
+                boolean genomeLoaded = false;
+                if (igvArgs.getGenomeId() != null) {
+                    String genomeId = igvArgs.getGenomeId();
+                    try {
+                        genomeLoaded = GenomeManager.getInstance().loadGenomeById(genomeId);
+                    } catch (IOException e) {
+                        MessageUtils.showErrorMessage("Error loading genome: " + genomeId, e);
+                        log.error("Error loading genome: " + genomeId, e);
+                    }
+                }
+                // If we're not loading a session file, attempt to load a default genome file
+                if (igvArgs.getSessionFile() == null && !loadAutosave && !genomeLoaded) {
+                    String genomeId = preferences.getDefaultGenome();
+                    try {
+                        genomeLoaded = GenomeManager.getInstance().loadGenomeById(genomeId);
+                    } catch (Exception e) {
+                        MessageUtils.showErrorMessage("Error loading genome " + genomeId + "<br/>" + e.getMessage(), e);
+                        genomeLoaded = false;
+                    }
+
+                    if (!genomeLoaded) {
+                        Genome genome = Genome.NULL_GENOME;
+                        GenomeManager.getInstance().setCurrentGenome(genome);
+                    }
+                }
+
+                if (igvArgs.getSessionFile() != null || igvArgs.getDataFileStrings() != null || loadAutosave) {
+
+                    if (log.isDebugEnabled()) {
+                        log.debug("Loading session data");
+                    }
+
+                    if (log.isDebugEnabled()) {
+                        log.debug("Calling restore session");
+                    }
+
+
+                    if (igvArgs.getSessionFile() != null) {
+                        IGV.getInstance().setStatusBarMessage3("Loading " + igvArgs.getSessionFile());
+                        boolean success;
+                        try {
+                            success = false;
+                            if (HttpUtils.isRemoteURL(igvArgs.getSessionFile())) {
+                                boolean merge = false;
+                                success = loadSession(igvArgs.getSessionFile(), igvArgs.getLocusString());
+                            } else {
+                                File sf = new File(igvArgs.getSessionFile());
+                                if (sf.exists()) {
+                                    success = loadSession(sf.getAbsolutePath(), igvArgs.getLocusString());
+                                }
+                            }
+                        } finally {
+                            IGV.getInstance().setStatusBarMessage3("");
+                        }
+                        if (!success) {
+                            String genomeId = preferences.getDefaultGenome();
+                            //contentPane.getCommandBar().selectGenome(genomeId);
+                            try {
+                                GenomeManager.getInstance().loadGenomeById(genomeId);
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        }
+                    } else if (igvArgs.getDataFileStrings() != null) {
+
+                        // Not an xml file, assume its a list of data files
+                        List<String> dataFiles = igvArgs.getDataFileStrings();
+
+                        Collection<String> h = igvArgs.getHttpHeader();
+                        if (h != null && !h.isEmpty()) {
+                            HttpUtils.getInstance().addHeaders(h, dataFiles);
+                        }
+
+                        String[] names = null;
+                        if (igvArgs.getName() != null) {
+                            names = igvArgs.getName().split(",");
+                        }
+                        String[] indexFiles = null;
+                        if (igvArgs.getIndexFile() != null) {
+                            indexFiles = igvArgs.getIndexFile().split(",");
+                        }
+                        String[] coverageFiles = null;
+                        if (igvArgs.getCoverageFile() != null) {
+                            coverageFiles = igvArgs.getCoverageFile().split(",");
+                        }
+
+                        List<ResourceLocator> locators = new ArrayList();
+                        for (int i = 0; i < dataFiles.size(); i++) {
+
+                            String p = dataFiles.get(i).trim();
+
+                            // Decode local file urls??? I don't understand this extra decoding
+                            if (URLUtils.isURL(p) && !FileUtils.isRemote(p)) {
+                                p = StringUtils.decodeURL(p);
+                            }
+
+                            ResourceLocator rl = new ResourceLocator(p);
+
+                            if (names != null && i < names.length) {
+                                String name = names[i];
+                                rl.setName(name);
+                            }
+
+                            //Set index file, iff one was passed
+                            if (indexFiles != null && i < indexFiles.length) {
+                                String idxP = indexFiles[i];
+                                if (URLUtils.isURL(idxP) && !FileUtils.isRemote(idxP)) {
+                                    idxP = StringUtils.decodeURL(idxP);       // ???
+                                }
+                                if (idxP.length() > 0) {
+                                    rl.setIndexPath(idxP);
+                                }
+                            }
+
+                            //Set coverage file, iff one was passed
+                            if (coverageFiles != null && i < coverageFiles.length) {
+                                String covP = coverageFiles[i];
+                                if (URLUtils.isURL(covP) && !FileUtils.isRemote(covP)) {
+                                    covP = StringUtils.decodeURL(covP);       // ???
+                                }
+                                if (covP.length() > 0) {
+                                    rl.setCoverage(covP);
+                                }
+                            }
+
+                            locators.add(rl);
+                        }
+                        loadTracks(locators);
+                    } else if (loadAutosave) {
+                        boolean success = false;
+                        try {
+                            // Get the last autosave and attempt to load
+                            File sessionAutosave = SessionAutosaveManager.getMostRecentAutosaveFile().get();
+                            success = loadSession(sessionAutosave.getAbsolutePath(), null);
+                        } catch (Exception e) {
+                            log.error("Failure trying to load most recent autosave file", e);
+                        }
+
+                        // Load the default genome if unsuccessful
+                        if (!success) {
+                            String genomeId = preferences.getDefaultGenome();
+                            //contentPane.getCommandBar().selectGenome(genomeId);
+                            try {
+                                GenomeManager.getInstance().loadGenomeById(genomeId);
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        }
+                    }
+                }
+
+                UIUtilities.invokeAndWaitOnEventThread(() -> {
+
+                    if (igvArgs.getLocusString() != null) {
+                        goToLocus(igvArgs.getLocusString());
+                    }
+
+                });
+
+                session.recordHistory();
+            }
+
+            synchronized (IGV.getInstance()) {
+                IGV.getInstance().notifyAll();
+            }
+        }
+
+
+        private void setAppleDockIcon() {
+            try {
+                Image image = getIconImage();
+                DesktopIntegration.setDockIcon(image);
+            } catch (Exception e) {
+                log.error("Error setting apple dock icon", e);
+            }
+        }
+
+        private Image getIconImage() {
+            String path = "resources/IGV_64.png";
+            URL url = IGV.class.getResource(path);
+            Image image = new ImageIcon(url).getImage();
+            return image;
+        }
+
+
+    }
+
+    public static void copySequenceToClipboard(Genome genome, String chr, int start, int end, Strand strand) {
+        try {
+            IGV.getInstance().getMainFrame().setCursor(Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR));
+            byte[] seqBytes = genome.getSequence(chr, start, end);
+
+            if (seqBytes == null) {
+                MessageUtils.showMessage("Sequence not available");
+            } else {
+                String sequence = new String(seqBytes);
+
+                SequenceTrack sequenceTrack = IGV.getInstance().getSequenceTrack();
+                if (strand == Strand.NEGATIVE || (sequenceTrack != null && sequenceTrack.getStrand() == Strand.NEGATIVE)) {
+                    sequence = SequenceTrack.getReverseComplement(sequence);
+                }
+                StringUtils.copyTextToClipboard(sequence);
+            }
+
+        } finally {
+            getInstance().getMainFrame().setCursor(Cursor.getDefaultCursor());
+        }
+    }
+
+
+    /**
+     * Wrapper for igv.wait(timeout).   Used during unit tests.
+     *
+     * @param timeout
+     * @return True if method completed before interruption (not necessarily before timeout), otherwise false
+     */
+    public boolean waitForNotify(long timeout) {
+        boolean completed = false;
+        synchronized (this) {
+            while (!completed) {
+                try {
+                    this.wait(timeout);
+                    completed = true;
+                } catch (InterruptedException e) {
+
+                }
+                break;
+            }
+        }
+        return completed;
+    }
+
+
+    public void receiveEvent(IGVEvent event) {
+        if (event instanceof ViewChange || event instanceof InsertionSelectionEvent) {
+            repaint();
+        } else if (event instanceof GenomeChangeEvent) {
+            if (IGV.hasInstance()) {
+                Genome currentGenome = ((GenomeChangeEvent) event).genome();
+                menuBar.updateMenus(currentGenome);
+                menuBar.setAllMenusEnabled(true);
+                // setAllMenusEnabled enables everything; restore state of items whose
+                // enabled state is conditional (e.g. "Reload Session" depends on a session path).
+                menuBar.resetSessionActions();
+            }
+            repaint();
+        } else {
+            log.warn("Unknown event type: " + event.getClass());
+        }
+    }
+
+
+    public void resetFrames() {
+        UIUtilities.invokeOnEventThread(() -> {
+                    getMainPanel().headerPanelContainer.createHeaderPanels();
+                    for (TrackPanel tp : getTrackPanels()) {
+                        tp.createDataPanels();
+                    }
+                    contentPane.getCommandBar().setGeneListMode(FrameManager.isGeneListMode());
+                    revalidateTrackPanels();
+                }
+        );
+    }
+
+    public void revalidateTrackPanels() {
+        UIUtilities.invokeOnEventThread(() -> {
+            getMainPanel().revalidateTrackPanels();
+            repaint();
+        });
+    }
+
+
+    public void repaintNamePanels() {
+        for (TrackPanel tp : getTrackPanels()) {
+            tp.getScrollPane().getNamePanel().repaint();
+        }
+    }
+
+
+
+    /**
+     * Repaint all visible tracks.
+     */
+    public void repaint() {
+        Collection<Track> trackList = new ArrayList<>();
+        for (TrackPanel tp : getTrackPanels()) {
+            trackList.add(tp.getTrack());
+        }
+        repaint(contentPane, trackList);
+    }
+
+    /**
+     * Repaint a collection of tracks.Rather than search for panels containing the tracks we paint the entire content
+     * pane.  In practice this is not significantly different from a full repaint(), but has the potential of
+     * being optimized.  Also, we only need to check and potentially load the specified tracks.
+     *
+     * @param tracks
+     */
+    public void repaint(Collection<? extends Track> tracks) {
+        this.repaint(contentPane, tracks);
+    }
+
+
+    /**
+     * Repaint a single track.  In practice this repaints the entire panel containing the track
+     *
+     * @param track
+     */
+    public void repaint(Track track) {
+        // Find the panel containing this track
+        for (TrackPanel tp : getTrackPanels()) {
+            if (tp.containsTrack(track)) {
+                this.repaint(tp, List.of(track));
+                return;
+            }
+        }
+    }
+
+    /**
+     * Repaint all header panels.  Used to force update of insertion markers.
+     */
+    public void repaintHeaderPanels() {
+        getMainPanel().repaintHeaderPanels();
+    }
+
+
+    private volatile boolean isLoading = false;
+    private volatile boolean repaintPending = false;
+    private final Object repaintLock = new Object();
+
+    private void repaint(final JComponent component, Collection<? extends Track> trackList) {
+
+        if (Globals.isBatch()) {
+            // In batch mode everything is done synchronously on the event thread
+            UIUtilities.invokeAndWaitOnEventThread(() -> {
+                try {
+                    for (ReferenceFrame frame : FrameManager.getFrames()) {
+                        for (Track track : trackList) {
+                            if (!track.isReadyToPaint(frame)) {
+                                track.load(frame);
+                            }
+                        }
+                    }
+                    Autoscaler.autoscale(getAllTracks());
+                    checkPanelLayouts();
+                    component.paintImmediately(0, 0, component.getWidth(), component.getHeight());
+                } finally {
+                    synchronized (IGV.getInstance()) {
+                        IGV.getInstance().notifyAll();
+                    }
+                }
+            });
+
+        } else {
+
+            // Hold lock for the entire check-and-set operation to prevent race conditions
+            List<CompletableFuture<Void>> futures;
+            synchronized (repaintLock) {
+                // Find tracks that need loading (not ready to paint)
+                futures = new ArrayList<>();
+                for (ReferenceFrame frame : FrameManager.getFrames()) {
+                    for (Track track : trackList) {
+                        if (!track.isReadyToPaint(frame)) {
+                            if (isLoading) {
+                                // A load is already in flight. Flag that another cycle is needed when it
+                                // completes; the pending cycle re-checks all tracks so nothing is lost.
+                                repaintPending = true;
+                                return;
+                            }
+                            futures.add(CompletableFuture.runAsync(() -> track.load(frame), threadExecutor)
+                                    .exceptionally(ex -> {
+                                        log.error("Error loading track data: " + track.getName(), ex);
+                                        return null;
+                                    }));
+                        }
+                    }
+                }
+
+                if (!futures.isEmpty()) {
+                    isLoading = true;
+                }
+            }
+
+            if (futures.isEmpty()) {
+                // All requested tracks are ready to paint. This runs even if an unrelated load is in
+                // flight -- renderers tolerate missing data, and expose events paint at any time anyway.
+                Autoscaler.autoscale(getAllTracks());
+                UIUtilities.invokeOnEventThread(() -> {
+                    checkPanelLayouts();
+                    component.repaint();
+                });
+                return;
+            }
+
+            // Loading is now in progress
+            final WaitCursorManager.CursorToken token = WaitCursorManager.showWaitCursor();
+
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).whenComplete((ignored, ex) -> {
+                WaitCursorManager.removeWaitCursor(token);
+
+                // Check if a repaint was requested while loading, and reset state under lock
+                boolean needsRepaint;
+                synchronized (repaintLock) {
+                    isLoading = false;
+                    needsRepaint = repaintPending;
+                    repaintPending = false;
+                }
+
+                try {
+                    // Autoscale (modifies track internal state, not UI)
+                    Autoscaler.autoscale(getAllTracks());
+                } catch (Exception e) {
+                    // The returned future is discarded, so anything thrown here would otherwise vanish
+                    log.error("Error autoscaling after load", e);
+                }
+
+                // Check layouts and repaint on EDT
+                UIUtilities.invokeOnEventThread(() -> {
+                    checkPanelLayouts();
+                    component.repaint();
+                    // A repaint requested while loading may have targeted any panel, so re-issue
+                    // against the whole content pane rather than the component that started this load.
+                    if (needsRepaint) {
+                        repaint(contentPane, getAllTracks());
+                    }
+                });
+            });
+
+        }
+    }
+
+    /**
+     * Check if any track panels need layout revalidation due to height changes.
+     * Note: This method should be called from the EDT.
+     */
+    private void checkPanelLayouts() {
+        boolean heightChanged = false;
+        for (TrackPanel tp : getTrackPanels()) {
+            if (tp.isHeightChanged()) {
+                heightChanged = true;
+
+                TrackPanelScrollPane scrollPane = tp.getScrollPane();
+                if (scrollPane != null) {
+                    JViewport viewport = scrollPane.getViewport();
+
+                    // Update the scrollbar policy based on new content height
+                    scrollPane.updateScrollbarPolicy();
+
+                    // Invalidate the entire hierarchy to mark it as needing layout
+                    tp.invalidate();
+                    viewport.invalidate();
+                    scrollPane.invalidate();
+                }
+            }
+        }
+        if (heightChanged) {
+            // Use invokeLater to ensure the revalidation happens after current processing
+            final MainPanel mainPanel = getMainPanel();
+            SwingUtilities.invokeLater(() -> {
+                mainPanel.revalidate();
+                mainPanel.repaint();
+            });
+        }
+    }
+
+    /**
+     * Stops the scheduled autosave task
+     */
+    public void stopTimedAutosave() {
+        sessionAutosaveTimer.cancel();
+    }
+
+    // Thread pool for loading data
+    public static final ExecutorService threadExecutor = Executors.newFixedThreadPool(5);
+}

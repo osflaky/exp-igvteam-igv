@@ -1,0 +1,79 @@
+{
+  "genome": "hg38",
+  "locus": "All",
+  "tracks": [
+    {
+      "sequenceTranslationStrandValue": "+",
+      "name": "Reference sequence",
+      "shouldShowTranslation": false,
+      "id": "Reference sequence",
+      "type": "sequence",
+      "order": -9007199254740991
+    },
+    {
+      "flipAxis": false,
+      "drawBaseline": true,
+      "graphType": "BAR_CHART",
+      "max": 1.1614603,
+      "format": "bigwig",
+      "colorScale": "ContinuousColorScale;0.0;1.161460280418396;255,255,255;0,0,178",
+      "mid": 0,
+      "type": "wig",
+      "autoscale": "true",
+      "url": "https://www.encodeproject.org/files/ENCFF125GYW/@@download/ENCFF125GYW.bigWig",
+      "logScale": false,
+      "min": 0,
+      "name": "GM12878 GABPA ChIP-seq signal p-value",
+      "windowFunction": "mean",
+      "id": "https://www.encodeproject.org/files/ENCFF125GYW/@@download/ENCFF125GYW.bigWig",
+      "order": 0,
+      "height": 40
+    },
+    {
+      "flipAxis": false,
+      "drawBaseline": true,
+      "graphType": "BAR_CHART",
+      "max": 0.8999721,
+      "format": "bigwig",
+      "mid": 0,
+      "type": "wig",
+      "autoscale": "true",
+      "url": "https://www.encodeproject.org/files/ENCFF836RED/@@download/ENCFF836RED.bigWig",
+      "logScale": false,
+      "min": 0,
+      "name": "HepG2 POLR2A ChIP-seq signal p-value",
+      "windowFunction": "mean",
+      "id": "https://www.encodeproject.org/files/ENCFF836RED/@@download/ENCFF836RED.bigWig",
+      "order": 0,
+      "height": 40
+    },
+    {
+      "track1": "https://www.encodeproject.org/files/ENCFF125GYW/@@download/ENCFF125GYW.bigWig",
+      "flipAxis": false,
+      "drawBaseline": true,
+      "track2": "https://www.encodeproject.org/files/ENCFF836RED/@@download/ENCFF836RED.bigWig",
+      "op": "ADD",
+      "graphType": "BAR_CHART",
+      "max": 1.7916217,
+      "colorScale": "ContinuousColorScale;0.0;1.161460280418396;255,255,255;0,0,178",
+      "mid": 0,
+      "type": "wig",
+      "autoscale": "true",
+      "logScale": false,
+      "min": 0,
+      "name": "Sum",
+      "windowFunction": "none",
+      "id": "1774973102162",
+      "order": 0,
+      "height": 40
+    },
+    {
+      "format": "refgene",
+      "name": "Refseq All",
+      "id": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/ncbiRefSeq.txt.gz",
+      "type": "annotation",
+      "url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/ncbiRefSeq.txt.gz",
+      "order": 1000001
+    }
+  ]
+}

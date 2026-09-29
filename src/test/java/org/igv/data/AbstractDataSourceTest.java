@@ -1,0 +1,106 @@
+package org.igv.data;
+
+import org.igv.AbstractHeadlessTest;
+import org.igv.feature.LocusScore;
+import org.igv.feature.genome.Genome;
+import org.igv.util.ResourceLocator;
+import org.igv.util.TestUtils;
+import org.junit.Test;
+
+import java.util.List;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
+/**
+ * Created by IntelliJ IDEA.
+ * User: jrobinso
+ * Date: Dec 19, 2009
+ * Time: 7:17:32 PM
+ * To change this template use File | Settings | File Templates.
+ */
+public class AbstractDataSourceTest extends AbstractHeadlessTest {
+
+    /**
+     * # When viewed as a heatmap this feature shows a 1-pixel break at position 23,314,405  when the
+     * # zoom is at  chr20:23,314,141-23,314,667
+     * chr20   23313029    23316433    91.1
+     */
+    @Test
+    public void testRT_134467() {
+        int[] starts = {23313029};
+        int[] ends = {23316433};
+        float[] values = {91.1f};
+
+        int s = 23313929;
+        int e = 23314405;
+
+        TestDataSource ds = new TestDataSource(starts, ends, values);
+
+        SummaryTile tile = ds.computeSummaryTile("chr20", s, e, 1);
+        List<LocusScore> scores = tile.getScores();
+
+        // Scores should be within 10 +/- 0.5,  and the mean should be very close to 10
+
+        for (LocusScore score : scores) {
+            float v = score.getScore();
+            assertEquals(91.1f, v, 0.00001);
+        }
+
+        assertEquals(1, scores.size());
+
+
+    }
+
+    @Test
+    public void testGetSummaryScoresForRange() {
+
+        TestDataSource ds = new TestDataSource();
+
+        SummaryTile tile = ds.computeSummaryTile("", 0, 10000, 1);
+
+        List<LocusScore> scores = tile.getScores();
+
+        // Scores should be within 10 +/- 0.5,  and the mean should be very close to 10
+        float sum = 0.0f;
+        long totPoints = 0;
+        for (LocusScore score : scores) {
+            float v = score.getScore();
+            assertTrue((v >= 9.5f && v <= 10.5f));
+            int numPoints = score.getEnd() - score.getStart();
+            sum += numPoints * v;
+            totPoints += numPoints;
+        }
+        double mean = sum / totPoints;
+        assertEquals(10.0, mean, 0.1);
+    }
+
+    @Test
+    public void testGetSummaryScoresForSNPs() throws Exception {
+
+        ResourceLocator locator = new ResourceLocator(TestUtils.DATA_DIR + "cn/multi_snp.cn");
+        Genome genome = TestUtils.loadGenome();
+        IGVDataset ds = new IGVDataset(locator, genome);
+        DatasetDataSource dataSource = new DatasetDataSource("Sample1", ds, genome);
+        String chr = "chr10";
+
+        dataSource.cacheSummaryTiles = false;
+        int zreq = 22;
+        int half_width = 20;
+        int[] starts = {72644150, 72698871, 72729621, 89614266, 89614367, 89614406, 89614478};
+        for (int start : starts) {
+            int end = start + 1 + half_width;
+            start -= half_width;
+            List<LocusScore> scores = dataSource.getSummaryScoresForRange(chr, start, end, zreq);
+            assertEquals(1, scores.size());
+        }
+        int start = starts[0] - 100;
+        int end = starts[starts.length - 1] + 100;
+        List<LocusScore> scores = dataSource.getSummaryScoresForRange(chr, start, end, 22);
+        //The last few get combined into 1 tile
+        assertEquals(4, scores.size());
+
+    }
+
+
+}

@@ -1,0 +1,63 @@
+{
+  "genome": "hg19",
+  "locus": "chr8:128745680-128757197",
+  "tracks": [
+    {
+      "sequenceTranslationStrandValue": "+",
+      "name": "Reference sequence",
+      "shouldShowTranslation": false,
+      "id": "Reference sequence",
+      "type": "sequence",
+      "order": -9007199254740991
+    },
+    {
+      "format": "refgene",
+      "name": "Refseq All",
+      "id": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/ncbiRefSeq.txt.gz",
+      "type": "annotation",
+      "url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/ncbiRefSeq.txt.gz",
+      "order": 0
+    },
+    {
+      "flipAxis": false,
+      "drawBaseline": true,
+      "max": 217,
+      "format": "bam",
+      "mid": 0,
+      "type": "coverage",
+      "autoscale": "true",
+      "url": "https://1000genomes.s3.amazonaws.com/phase3/data/HG01879/exome_alignment/HG01879.mapped.ILLUMINA.bwa.ACB.exome.20120522.bam",
+      "logScale": false,
+      "min": 0,
+      "name": "HG01879 exome Coverage",
+      "id": "https://1000genomes.s3.amazonaws.com/phase3/data/HG01879/exome_alignment/HG01879.mapped.ILLUMINA.bwa.ACB.exome.20120522.bam_coverage",
+      "alleleFreqThreshold": 0.2,
+      "order": 0
+    },
+    {
+      "visible": "false",
+      "format": "bam",
+      "name": "HG01879 exome Junctions",
+      "id": "https://1000genomes.s3.amazonaws.com/phase3/data/HG01879/exome_alignment/HG01879.mapped.ILLUMINA.bwa.ACB.exome.20120522.bam_junctions",
+      "type": "junction",
+      "maxdepth": 50,
+      "url": "https://1000genomes.s3.amazonaws.com/phase3/data/HG01879/exome_alignment/HG01879.mapped.ILLUMINA.bwa.ACB.exome.20120522.bam",
+      "order": 0,
+      "height": 60,
+      "autoScale": "true"
+    },
+    {
+      "color": "185,185,185",
+      "duplicatesOption": "FILTER",
+      "format": "bam",
+      "name": "HG01879 exome",
+      "id": "https://1000genomes.s3.amazonaws.com/phase3/data/HG01879/exome_alignment/HG01879.mapped.ILLUMINA.bwa.ACB.exome.20120522.bam",
+      "type": "alignment",
+      "url": "https://1000genomes.s3.amazonaws.com/phase3/data/HG01879/exome_alignment/HG01879.mapped.ILLUMINA.bwa.ACB.exome.20120522.bam",
+      "displayMode": "EXPANDED",
+      "experimentType": "OTHER",
+      "order": 0,
+      "height": 300
+    }
+  ]
+}

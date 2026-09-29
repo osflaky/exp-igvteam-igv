@@ -1,0 +1,12 @@
+/.github/
+/.gradle/
+/build/
+/.idea/
+
+#JENV local config file
+.java-version
+/test/batch/snapshots/
+/.claude/
+/test/data/out/
+/supp_btq351_bbiSuppFINAL.doc
+/scratch/

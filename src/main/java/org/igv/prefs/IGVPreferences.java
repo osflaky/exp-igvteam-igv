@@ -1,0 +1,992 @@
+package org.igv.prefs;
+
+
+import org.igv.DirectoryManager;
+import org.igv.Globals;
+import org.igv.batch.CommandListener;
+import org.igv.event.AlignmentTrackEvent;
+import org.igv.event.IGVEventBus;
+import org.igv.logging.LogManager;
+import org.igv.logging.Logger;
+import org.igv.renderer.ColorScaleFactory;
+import org.igv.renderer.ContinuousColorScale;
+import org.igv.renderer.SequenceRenderer;
+import org.igv.alignment.mods.BaseModificationColors;
+import org.igv.track.DataType;
+import org.igv.ui.*;
+import org.igv.ui.color.ColorUtilities;
+import org.igv.ui.color.PaletteColorTable;
+import org.igv.ui.util.MessageUtils;
+import org.igv.util.HttpUtils;
+
+import java.awt.*;
+import java.io.File;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.*;
+
+import static org.igv.prefs.Constants.*;
+
+/**
+ * Manages user preferences.
+ */
+public class IGVPreferences {
+
+    private static Logger log = LogManager.getLogger(IGVPreferences.class);
+
+    IGVPreferences parent;
+
+    Map<String, String> userPreferences;
+    Map<String, String> defaults;
+    // Preferences which should persist for this session only
+    Set<String> overrideKeys = new HashSet<>();
+
+    // Cached non-string preference values
+    private Map<String, Boolean> booleanCache = new Hashtable<>();
+    private Map<String, Object> objectCache = new Hashtable<>();
+    private Map<String, ContinuousColorScale> colorScaleCache = new Hashtable<>();
+    private PaletteColorTable mutationColorScheme = null;
+
+    public IGVPreferences(Map<String, String> userPreferences,
+                          Map<String, String> defaults,
+                          IGVPreferences parent) {
+        this.parent = parent;
+        this.defaults = defaults;
+        this.userPreferences = userPreferences == null ? new HashMap<>() : userPreferences;
+        migrateUserPreferences();
+    }
+
+    public String get(String key) {
+        key = key.trim();
+
+        if (userPreferences.containsKey(key)) {
+            return userPreferences.get(key);
+        } else if (parent != null && parent.userPreferences.containsKey(key)) {
+            return parent.userPreferences.get(key);
+        } else if (defaults != null && defaults.containsKey(key)) {
+            return defaults.get(key);
+        } else if (parent != null) {
+            return parent.get(key);
+        } else {
+            return null;
+        }
+    }
+
+    public String get(String key, String defaultValue) {
+        String val = get(key);
+        return val == null ? defaultValue : val;
+    }
+
+    /**
+     * Return the preference as a boolean value.
+     *
+     * @param key
+     * @return
+     */
+    public boolean getAsBoolean(String key) {
+        key = key.trim();
+        Boolean boolValue = booleanCache.get(key);
+        if (boolValue == null) {
+            String value = get(key);
+            if (value == null) {
+                log.warn("No value for preference key:: " + key);
+                return false;
+            }
+            boolValue = Boolean.valueOf(value);
+            booleanCache.put(key, boolValue);
+        }
+        return boolValue;
+    }
+
+    /**
+     * Return the preference as an integer.
+     *
+     * @param key
+     * @return
+     */
+    public int getAsInt(String key) {
+        key = key.trim();
+        Number value = (Number) objectCache.get(key);
+        if (value == null) {
+            String stringValue = get(key);
+            if (stringValue == null) {
+                log.warn("No value for preference key:: " + key);
+                return 0;
+            }
+            try {
+                value = Integer.valueOf(stringValue);
+            } catch (NumberFormatException e) {
+                log.warn("Invalid integer preference for key '" + key + "': '" + stringValue + "'. Falling back to 0.");
+                value = 0;
+            }
+            objectCache.put(key, value);
+        }
+        return value.intValue();
+    }
+
+    /**
+     * Return the preference as a color.
+     *
+     * @param key
+     * @return
+     */
+    public Color getAsColor(String key) {
+        key = key.trim();
+        Color value = (Color) objectCache.get(key);
+        if (value == null) {
+            String defValue = get(key);
+            if (defValue == null) {
+                log.warn("No value for preference key:: " + key);
+                return Color.white;
+            }
+            value = ColorUtilities.stringToColor(defValue);
+            objectCache.put(key, value);
+        }
+        return value;
+    }
+
+    /**
+     * Return the preference as a color, substituting an alternative in dark mode.
+     * <p>
+     * Many of IGV's stock color defaults were chosen against a white background and are unreadable against a dark
+     * one -- a near-black blue, a near-white "no data" gray.  This returns {@code darkModeDefault} in dark mode,
+     * but only when the user has not chosen a color explicitly; an explicit choice is always honored.
+     *
+     * @param key             preference key
+     * @param darkModeDefault color to use in dark mode in place of the stock default
+     */
+    public Color getAsColor(String key, Color darkModeDefault) {
+        return (Globals.isDarkMode() && !hasExplicitValue(key)) ? darkModeDefault : getAsColor(key);
+    }
+
+    /**
+     * Return the preference as an float.
+     *
+     * @param key
+     * @return
+     */
+    public float getAsFloat(String key) {
+        key = key.trim();
+        Number value = (Number) objectCache.get(key);
+        if (value == null) {
+            String stringValue = get(key);
+            if (stringValue == null) {
+                log.warn("No value for preference key:: " + key);
+                return 0;
+            }
+            try {
+                value = Float.valueOf(stringValue);
+            } catch (NumberFormatException e) {
+                log.warn("Invalid float value for preference '" + key + "': '" + stringValue + "'. Falling back to 0.0f.", e);
+                value = 0.0f;
+            }
+            objectCache.put(key, value);
+        }
+        return value.floatValue();
+    }
+
+
+    /**
+     * Get a property which is a delimited list of entries
+     *
+     * @param key
+     * @return The string array of tokens, or an empty array if not present
+     */
+    private String[] getAsArray(String key) {
+        String stringProp = get(key);
+        if (stringProp == null) {
+            return new String[0];
+        } else {
+            return stringProp.split(Globals.HISTORY_DELIMITER);
+        }
+    }
+
+    public boolean hasExplicitValue(String key) {
+        key = key.trim();
+        return userPreferences.containsKey(key);
+    }
+
+    public void addOverrides(Map<String, String> newPrefs) {
+        overrideKeys.addAll(newPrefs.keySet());
+        userPreferences.putAll(newPrefs);
+    }
+
+    public boolean getAntiAliasing() {
+
+        if (userPreferences.containsKey(Constants.ENABLE_ANTIALISING) || !Globals.IS_LINUX) {
+            return getAsBoolean(Constants.ENABLE_ANTIALISING);
+        } else {
+            // Linux with no explicit setting
+            return false;
+        }
+    }
+
+    /**
+     * Update any cached values with the new key/value pair
+     *
+     * @param key
+     * @param value
+     */
+    private void updateCaches(String key, String value) {
+        key = key.trim();
+        if (booleanCache.containsKey(key)) {
+            booleanCache.put(key, Boolean.valueOf(value));
+        }
+        objectCache.remove(key);
+        mutationColorScheme = null;
+    }
+
+    private void clearCaches() {
+        colorScaleCache.clear();
+        booleanCache.clear();
+        objectCache.clear();
+        mutationColorScheme = null;
+    }
+
+    /**
+     * Update preference.  This command is ignored if in batch mode *
+     * @param key
+     * @param value
+     */
+    public void put(String key, String value) {
+
+        if (!Globals.isBatch()) {
+            key = key.trim();
+
+            // Explicitly setting removes override
+            overrideKeys.remove(key);
+
+            if (value == null || value.isBlank()) {
+                userPreferences.remove(key);
+            } else {
+                userPreferences.put(key, value);
+            }
+            updateCaches(key, value);
+            checkForTrackBorderChange(key);
+            IGVEventBus.getInstance().post(new PreferencesChangeEvent());
+        }
+    }
+
+    public void put(String key, boolean b) {
+        put(key, String.valueOf(b));
+    }
+
+
+    public void putAll(Map<String, String> updatedPrefs) {
+        for (Map.Entry<String, String> entry : updatedPrefs.entrySet()) {
+            if (entry.getValue() == null || entry.getValue().isBlank()) {
+                remove(entry.getKey());
+            } else {
+                put(entry.getKey(), entry.getValue());
+            }
+        }
+        clearCaches();
+        checkForProxyChanges(updatedPrefs);
+        checkForAlignmentChanges(updatedPrefs);
+        checkForCommandListenerChanges(updatedPrefs);
+        checkForAttributePanelChanges(updatedPrefs);
+        checkForTrackBorderChanges(updatedPrefs);
+        checkForGoogleMenuChange(updatedPrefs);
+        checkForRestartChanges(updatedPrefs);
+        IGVEventBus.getInstance().post(new PreferencesChangeEvent());
+    }
+
+    private void checkForRestartChanges(Map<String, String> updatedPreferenceMap) {
+        for (String key : RESTART_KEYS) {
+            if (updatedPreferenceMap.containsKey(key)) {
+                MessageUtils.showMessage("Preference changes will take effect after restart.");
+                return;
+            }
+        }
+    }
+
+    private void checkForGoogleMenuChange(Map<String, String> updatedPreferenceMap) {
+
+        if (updatedPreferenceMap.containsKey(ENABLE_GOOGLE_MENU) && IGV.hasInstance()) {
+            try {
+                IGVMenuBar.getInstance().enableGoogleMenu(getAsBoolean(ENABLE_GOOGLE_MENU));
+            } catch (IOException e) {
+                log.error("Error enabling/disabling Google menu", e);
+            }
+        }
+    }
+
+    private void checkForAlignmentChanges(Map<String, String> updatedPreferenceMap) {
+
+        if (IGV.hasInstance()) {
+
+            boolean reloadSAM = false;
+            for (String key : SAM_RELOAD_KEYS) {
+                if (updatedPreferenceMap.containsKey(key)) {
+                    reloadSAM = true;
+                    break;
+                }
+            }
+
+            boolean refreshSAM = false;
+            for (String key : SAM_REFRESH_KEYS) {
+                if (updatedPreferenceMap.containsKey(key)) {
+                    refreshSAM = true;
+                    break;
+                }
+            }
+            for (String key : BASEMOD_COLOR_KEYS) {
+                if (updatedPreferenceMap.containsKey(key)) {
+                    refreshSAM = true;
+                    BaseModificationColors.updateColors();
+                    break;
+                }
+            }
+
+            for (String key : NUCLEOTIDE_COLOR_KEYS) {
+                if (updatedPreferenceMap.containsKey(key)) {
+                    SequenceRenderer.setNucleotideColors();
+                    break;
+                }
+            }
+
+            if (reloadSAM) {
+                IGVEventBus.getInstance().post(new AlignmentTrackEvent(AlignmentTrackEvent.Type.RELOAD));
+            }
+            // A reload is harsher than a refresh; only send the weaker request if the stronger one is not sent.
+            if (!reloadSAM && refreshSAM) {
+                IGVEventBus.getInstance().post(new AlignmentTrackEvent(AlignmentTrackEvent.Type.REFRESH));
+            }
+            if (updatedPreferenceMap.containsKey(SAM_ALLELE_THRESHOLD)) {
+                IGVEventBus.getInstance().post(new AlignmentTrackEvent(AlignmentTrackEvent.Type.ALLELE_THRESHOLD));
+            }
+        }
+
+    }
+
+    private void checkForProxyChanges(Map<String, String> updatedPreferenceMap) {
+        if (HttpUtils.getInstance() != null) {
+            for (String key : PROXY_KEYS) {
+                if (updatedPreferenceMap.containsKey(key)) {
+                    HttpUtils.getInstance().updateProxySettings();
+                    break;
+                }
+            }
+        }
+    }
+
+    private void checkForCommandListenerChanges(Map<String, String> updatedPreferenceMap) {
+        if (updatedPreferenceMap.containsKey(PORT_ENABLED) || updatedPreferenceMap.containsKey(PORT_NUMBER)) {
+            CommandListener.halt();
+            if (getAsBoolean(PORT_ENABLED)) {
+                CommandListener.start(getAsInt(PORT_NUMBER));
+            }
+        }
+    }
+
+    private void checkForTrackBorderChanges(Map<String, String> updatedPreferenceMap) {
+        for (String key : TRACK_BORDER_KEYS) {
+            if (updatedPreferenceMap.containsKey(key)) {
+                checkForTrackBorderChange(key);
+                return;
+            }
+        }
+    }
+
+    /**
+     * The track borders are drawn by the dividers between track panels, so a change in any of the
+     * border preferences requires a re-layout, not just a repaint.
+     */
+    private void checkForTrackBorderChange(String key) {
+        if (TRACK_BORDER_KEYS.contains(key) && IGV.hasInstance()) {
+            IGV.getInstance().revalidateTrackPanels();
+        }
+    }
+
+    private void checkForAttributePanelChanges(Map<String, String> updatedPreferenceMap) {
+        if (updatedPreferenceMap.containsKey(SHOW_ATTRIBUTE_VIEWS_KEY) || updatedPreferenceMap.containsKey(SHOW_DEFAULT_TRACK_ATTRIBUTES)) {
+            if (IGV.hasInstance()) {
+                IGV.getInstance().revalidateTrackPanels();
+            }
+        }
+    }
+
+
+    public void remove(String key) {
+        overrideKeys.remove(key);
+        userPreferences.remove(key);
+        booleanCache.remove(key);
+        objectCache.remove(key);
+        colorScaleCache.remove(key); //TODO same issue of cache not using String keys
+        IGVEventBus.getInstance().post(new PreferencesChangeEvent());
+
+    }
+
+
+    public void clear() {
+        userPreferences.clear();
+        colorScaleCache.clear();
+        booleanCache.clear();
+        objectCache.clear();
+        IGVEventBus.getInstance().post(new PreferencesChangeEvent());
+    }
+
+
+
+    public String getGenomeListURL() {
+        return get(GENOMES_SERVER_URL);
+    }
+
+    public String getBackupGenomeListURL() {
+        return get(BACKUP_GENOMES_SERVER_URL);
+    }
+
+    public String getProvisioningURL() {
+        return get(PROVISIONING_URL);
+    }
+
+    public String getPortNumber() {
+        return get(PORT_NUMBER);
+    }
+
+    public void overrideGenomeServerURL(String url) {
+        userPreferences.put(GENOMES_SERVER_URL, url);
+        overrideKeys.add(GENOMES_SERVER_URL);
+        clearCaches();
+    }
+
+    /**
+     * @param directory
+     */
+    public void setLastExportedRegionDirectory(File directory) {
+
+        put(LAST_EXPORTED_REGION_DIRECTORY, directory.getAbsolutePath());
+    }
+
+    /**
+     * @return
+     */
+    public File getLastExportedRegionDirectory() {
+
+        File exportedRegionDirectory = null;
+
+        String lastFilePath = get(LAST_EXPORTED_REGION_DIRECTORY, null);
+
+        if (lastFilePath != null) {
+
+            // Create the exported region directory
+            exportedRegionDirectory = new File(lastFilePath);
+        }
+
+        return exportedRegionDirectory;
+    }
+
+    /**
+     * @param directory
+     */
+    public void setLastSnapshotDirectory(String directory) {
+
+        put(LAST_SNAPSHOT_DIRECTORY, directory);
+    }
+
+    /**
+     * @return
+     */
+    public File getLastSnapshotDirectory() {
+
+        File snapshotDirectory = null;
+
+        String lastFilePath = get(LAST_SNAPSHOT_DIRECTORY, null);
+
+        if (lastFilePath != null) {
+
+            // Create the snapshot directory
+            snapshotDirectory = new File(lastFilePath);
+        }
+
+        return snapshotDirectory;
+    }
+
+    /**
+     * @param directory
+     */
+    public void setDefineGenomeInputDirectory(File directory) {
+
+        put(DEFINE_GENOME_INPUT_DIRECTORY_KEY, directory.getAbsolutePath());
+    }
+
+    /**
+     * @return
+     */
+    public File getDefineGenomeInputDirectory() {
+
+        File directory = null;
+
+        String lastFilePath = get(DEFINE_GENOME_INPUT_DIRECTORY_KEY, DirectoryManager.getUserDefaultDirectory().getAbsolutePath());
+
+        if (lastFilePath != null) {
+            directory = new File(lastFilePath);
+        }
+
+        return directory;
+    }
+
+    /**
+     * @param directory
+     */
+    public void setLastGenomeImportDirectory(File directory) {
+
+        put(LAST_GENOME_IMPORT_DIRECTORY, directory.getAbsolutePath());
+    }
+
+    /**
+     * @return
+     */
+    public File getLastGenomeImportDirectory() {
+
+        File genomeImportDirectory = null;
+
+        String lastFilePath = get(LAST_GENOME_IMPORT_DIRECTORY, DirectoryManager.getUserDefaultDirectory().getAbsolutePath());
+
+        if (lastFilePath != null) {
+            genomeImportDirectory = new File(lastFilePath);
+        }
+
+        return genomeImportDirectory;
+    }
+
+
+    /**
+     * @param bounds
+     */
+    public void setApplicationFrameBounds(Rectangle bounds) {
+
+        if (bounds.width > 0 && bounds.height > 0) {
+            StringBuffer buffer = new StringBuffer();
+            buffer.append(bounds.x);
+            buffer.append(",");
+            buffer.append(bounds.y);
+            buffer.append(",");
+            buffer.append(bounds.width);
+            buffer.append(",");
+            buffer.append(bounds.height);
+            put(FRAME_BOUNDS_KEY, buffer.toString());
+        }
+    }
+
+    /**
+     * @return
+     */
+    public Rectangle getApplicationFrameBounds() {
+
+        Rectangle bounds = null;
+
+        // Set the application's previous location and size
+        String applicationBounds = get(FRAME_BOUNDS_KEY, null);
+
+        if (applicationBounds != null) {
+            String[] values = applicationBounds.split(",");
+            int x = Integer.parseInt(values[0]);
+            int y = Integer.parseInt(values[1]);
+            int width = Integer.parseInt(values[2]);
+            int height = Integer.parseInt(values[3]);
+
+            if (width == 0 || height == 0) {
+                return null;  // Don't know bounds
+            }
+
+            bounds = new Rectangle(x, y, width, height);
+        }
+        return bounds;
+    }
+
+    /**
+     * @param recentSessions
+     */
+    public void setRecentSessions(String recentSessions) {
+        remove(RECENT_SESSIONS);
+        put(RECENT_SESSIONS, recentSessions);
+    }
+
+
+    public RecentFileSet getRecentSessions() {
+        String sessionsString = get(RECENT_SESSIONS, null);
+        return RecentFileSet.fromString(sessionsString, UIConstants.NUMBER_OF_RECENT_SESSIONS_TO_LIST);
+    }
+
+    public void setRecentUrls(String recentUrls) {
+        remove(RECENT_URLS);
+        put(RECENT_URLS, recentUrls);
+    }
+
+
+    public RecentUrlsSet getRecentUrls() {
+        String sessionsString = get(RECENT_URLS, null);
+        return RecentUrlsSet.fromString(sessionsString, UIConstants.NUMBER_OF_RECENT_SESSIONS_TO_LIST);
+    }
+
+
+    public String getDataServerURL() {
+        String masterResourceFile = get(DATA_SERVER_URL_KEY);
+        return masterResourceFile;
+    }
+
+    /**
+     * Temporarily override the data server url with the supplied value.  This override will persist for
+     * the duration of the session, or until the user explicitly changes it.
+     *
+     * @param url
+     */
+    public void overrideDataServerURL(String url) {
+        userPreferences.put(DATA_SERVER_URL_KEY, url);
+        overrideKeys.add(DATA_SERVER_URL_KEY);
+        clearCaches();
+    }
+
+    /**
+     * Temporarily override a preference.   This override will persist for
+     * the duration of the session, or until the user explicitly changes it.
+     *
+     * @param key
+     * @param value
+     */
+    public void override(String key, String value) {
+        userPreferences.put(key, value);
+        overrideKeys.add(key);    // <= order here is important, must be after userPreferences statement
+        Map<String, String> updatedPrefs = new HashMap<String, String>();
+        updatedPrefs.put(key, value);
+        checkForAlignmentChanges(updatedPrefs);
+        clearCaches();
+        checkForTrackBorderChange(key);
+    }
+
+    public void setShowAttributeView(boolean isShowable) {
+        put(SHOW_ATTRIBUTE_VIEWS_KEY, Boolean.toString(isShowable));
+    }
+
+    public void setLastGenome(String genomeId) {
+        if (!genomeId.equals(get(DEFAULT_GENOME))) {
+            put(DEFAULT_GENOME, genomeId);
+        }
+    }
+
+
+    public String getDefaultGenome() {
+
+        String genome = get(DEFAULT_GENOME, Globals.DEFAULT_GENOME);
+        return genome;
+    }
+
+    public void setLastTrackDirectory(File directory) {
+        String lastDirectory = directory.isDirectory() ? directory.getAbsolutePath() : directory.getParent();
+        put(LAST_TRACK_DIRECTORY, lastDirectory);
+    }
+
+    public File getLastTrackDirectory() {
+
+        String lastDirectoryPath = get(LAST_TRACK_DIRECTORY, null);
+
+        File lastDirectoryFile = null;
+        if (lastDirectoryPath != null) {
+            lastDirectoryFile = new File(lastDirectoryPath);
+        }
+
+        return lastDirectoryFile;
+    }
+
+
+    /**
+     * Set the color scheme for the track key.
+     *
+     * @param key - Key for scale, which encodes track type and possibly "Dark Mode" flag (e.g. "COLOR_SCALE_GENE_EXPRESSION_DARK")
+     * @param colorScale
+     */
+    public void setColorScale(String key, ContinuousColorScale colorScale) {
+        String colorScaleString = colorScale.asString();
+        put(key, colorScaleString);
+        colorScaleCache.put(key, colorScale);
+    }
+
+    /**
+     * Get the default color scheme for the track type.  Only specific TrackTypes have default schemes.  The scale
+     * returned is marked as "default".
+     *
+     * @param type
+     * @return
+     */
+
+    public ContinuousColorScale getColorScale(DataType type) {
+        if (type == null) {
+            return null;
+        }
+
+        // In dark mode prefer the "_DARK" variant of the scale, which uses a dark rather than white neutral.
+        // preferences.tab defines these for COPY_NUMBER and GENE_EXPRESSION, and the preference editor exposes
+        // them; before this they were written but never read.
+        String key = COLOR_SCALE_KEY + type + (Globals.isDarkMode() ? DARK_SCALE_SUFFIX : "");
+        ContinuousColorScale scale = colorScaleCache.get(key);
+        if (scale == null) {
+            String colorScaleString = get(key, null);
+            if (colorScaleString != null) {
+                scale = (ContinuousColorScale) ColorScaleFactory.getScaleFromString(colorScaleString);
+            } else {
+                scale = getDefaultColorScale(type);
+            }
+            if (scale != null) {
+                scale.setDefault(true);
+                colorScaleCache.put(key, scale);
+            }
+        }
+        return scale;
+    }
+
+    public ContinuousColorScale getColorScale(String key) {
+        ContinuousColorScale scale = colorScaleCache.get(key);
+        if (scale == null) {
+            String colorScaleString = get(key);
+            if (colorScaleString != null) {
+                scale = (ContinuousColorScale) ColorScaleFactory.getScaleFromString(colorScaleString);
+            } else {
+                String typeString = key.replace(COLOR_SCALE_KEY, "").replace(DARK_SCALE_SUFFIX, "");
+                try {
+                    DataType type = DataType.valueOf(typeString);
+                    scale = getDefaultColorScale(type);
+                } catch (IllegalArgumentException e) {
+                    // Ignore
+                }
+            }
+            if(scale != null) {
+                colorScaleCache.put(key, scale);
+            }
+
+        }
+        return scale;
+    }
+
+    /**
+     * Return the default color scale.  This is the scale for track type "generic",
+     * as well as any track type without a specific scale.
+     *
+     * @param type
+     * @return
+     */
+    static ContinuousColorScale getDefaultColorScale(DataType type) {
+
+        // A heatmap's neutral value and its "no data" fill both have to read as *background*.  A white neutral on
+        // a dark panel reads as a bright band of signal, which is exactly backwards.
+        final Color neutral = Globals.isDarkMode() ? UIConstants.getTrackPanelBackground() : Color.WHITE;
+        final Color noData = Globals.isDarkMode()
+                ? ColorUtilities.shiftBrightness(UIConstants.getTrackPanelBackground(), 12)
+                : new Color(225, 225, 225);
+
+        switch (type) {
+            case LOH:
+                Color lohNeutral = Globals.isDarkMode() ? neutral : UIConstants.LIGHT_YELLOW;
+                return new ContinuousColorScale(0, -1, 0, 1, Color.red, lohNeutral, Color.blue);
+            case RNAI:
+            case POOLED_RNAI:
+                ContinuousColorScale cs = new ContinuousColorScale(0, -3, 0, 3, Color.red, neutral, Color.blue);
+                cs.setNoDataColor(noData);
+                return cs;
+
+            case DNA_METHYLATION:
+                cs = new ContinuousColorScale(0, 1, Color.BLUE, Color.RED);
+                cs.setNoDataColor(neutral);
+                return cs;
+
+            case GENE_EXPRESSION:
+                cs = getDefaultColorScale(Color.BLUE, neutral, Color.RED);
+                cs.setNoDataColor(noData);
+                return cs;
+
+            case COPY_NUMBER:
+            case ALLELE_SPECIFIC_COPY_NUMBER:
+            case CNV:
+                return getDefaultColorScale(Color.BLUE, neutral, Color.RED);
+
+            default:
+                return null;
+        }
+    }
+
+    public static ContinuousColorScale getDefaultColorScale(Color negColor, Color neutralColor, Color posColor) {
+        return new ContinuousColorScale(-0.1, -1.5, 0.1, 1.5, negColor, neutralColor, posColor);
+    }
+
+    /**
+     * Original labels:  Indel, Missense, Nonsesne, Splice_site, Synonymous, Targetd_Region, Unknown
+     * Nico's labels:   Synonymous, Missense, Truncating, Non-coding_Transcript, Other_AA_changing, Other_likely_neutral.
+     */
+    public void resetMutationColorScheme() {
+
+        remove(MUTATION_INDEL_COLOR_KEY);
+        remove(MUTATION_MISSENSE_COLOR_KEY);
+        remove(MUTATION_NONSENSE_COLOR_KEY);
+        remove(MUTATION_SPLICE_SITE_COLOR_KEY);
+        remove(MUTATION_SYNONYMOUS_COLOR_KEY);
+        remove(MUTATION_TARGETED_REGION_COLOR_KEY);
+        remove(MUTATION_UNKNOWN_COLOR_KEY);
+        remove("MUTATION_Truncating_COLOR");
+        remove("MUTATION_Non-coding_Transcript_COLOR");
+        remove("MUTATION_Other_AA_changing_COLOR");
+        remove("MUTATION_Other_likely_neutral_COLOR");
+        remove(MUTATION_COLOR_TABLE);
+    }
+
+
+    /**
+     * Original labels:  Indel, Missense, Nonsesne, Splice_site, Synonymous, Targetd_Region, Unknown
+     * Nico's labels:   Synonymous, Missense, Truncating, Non-coding_Transcript, Other_AA_changing, Other_likely_neutral.
+     * Combined: Indel, Missense, Nonsesne, Splice_site, Synonymous, Targetd_Region, Unknown, Truncating,
+     * Non-coding_Transcript, Other_AA_changing, Other_likely_neutral
+     */
+    public synchronized PaletteColorTable getMutationColorScheme() {
+        if (mutationColorScheme == null) {
+            String colorTableString = get(MUTATION_COLOR_TABLE);
+            if (colorTableString != null) {
+                PaletteColorTable pallete = new PaletteColorTable();
+                pallete.restoreMapFromString(colorTableString);
+                mutationColorScheme = pallete;
+            } else {
+                mutationColorScheme = getLegacyMutationColorScheme();
+            }
+        }
+        return mutationColorScheme;
+    }
+
+    private PaletteColorTable getLegacyMutationColorScheme() {
+        String indelColor = get(MUTATION_INDEL_COLOR_KEY);
+        String missenseColor = get(MUTATION_MISSENSE_COLOR_KEY);
+        String nonsenseColor = get(MUTATION_NONSENSE_COLOR_KEY);
+        String spliceSiteColor = get(MUTATION_SPLICE_SITE_COLOR_KEY);
+        String synonymousColor = get(MUTATION_SYNONYMOUS_COLOR_KEY);
+        String targetedRegionColor = get(MUTATION_TARGETED_REGION_COLOR_KEY);
+        String unknownColor = get(MUTATION_UNKNOWN_COLOR_KEY);
+
+        PaletteColorTable colorTable = new PaletteColorTable();
+        if ((indelColor != null) && (missenseColor != null) && (nonsenseColor != null) &&
+                (spliceSiteColor != null) &&
+                (synonymousColor != null) &&
+                (targetedRegionColor != null) &&
+                (unknownColor != null)) {
+
+            Color color1 = ColorUtilities.stringToColor(indelColor);
+            colorTable.put("Indel", color1);
+
+            Color color2 = ColorUtilities.stringToColor(missenseColor);
+            colorTable.put("Missense", color2);
+
+            Color color3 = ColorUtilities.stringToColor(nonsenseColor);
+            colorTable.put("Nonsense", color3);
+
+            Color color4 = ColorUtilities.stringToColor(spliceSiteColor);
+            colorTable.put("Splice_site", color4);
+
+            Color color5 = ColorUtilities.stringToColor(synonymousColor);
+            colorTable.put("Synonymous", color5);
+
+            Color color6 = ColorUtilities.stringToColor(targetedRegionColor);
+            colorTable.put("Targeted_Region", color6);
+
+            Color color7 = ColorUtilities.stringToColor(unknownColor);
+            colorTable.put("Unknown", color7);
+
+            // Nicos extensions
+            String[] nicosCats = {"Truncating", "Non-coding_Transcript", "Other_AA_changing", "Other_likely_neutral"};
+            for (String cat : nicosCats) {
+                String key = "MUTATION_" + cat + "_COLOR";
+                colorTable.put(cat, ColorUtilities.stringToColor(get(key)));
+            }
+        }
+
+        return colorTable;
+    }
+
+    static String getMutationColorKey(String type) {
+        switch (type) {
+            case "Indel":
+                return MUTATION_INDEL_COLOR_KEY;
+            case "Missense":
+                return MUTATION_MISSENSE_COLOR_KEY;
+            case "Nonsense":
+                return MUTATION_NONSENSE_COLOR_KEY;
+            case "Splice_site":
+                return MUTATION_SPLICE_SITE_COLOR_KEY;
+            case "Synonymous":
+                return MUTATION_SYNONYMOUS_COLOR_KEY;
+            case "Targeted_region":
+                return MUTATION_TARGETED_REGION_COLOR_KEY;
+            case "Unknown":
+                return MUTATION_UNKNOWN_COLOR_KEY;
+            default:
+                return "MUTATION_" + type + "_COLOR";
+        }
+    }
+
+
+    /**
+     * Immediately clear all proxy settings.
+     */
+    public void clearProxySettings() {
+
+        remove(USE_PROXY);
+        remove(PROXY_HOST);
+        remove(PROXY_PORT);
+        remove(PROXY_AUTHENTICATE);
+        remove(PROXY_USER);
+        remove(PROXY_PW);
+        remove(PROXY_TYPE);
+        remove(PROXY_WHITELIST);
+        HttpUtils.getInstance().updateProxySettings();
+    }
+
+
+    /**
+     * Returns a preference value from either the preferences,
+     * or system property. If the value was provided as a system property,
+     * is is saved to the preferences.
+     * Intended usecase is features only usable by certain groups but
+     * not intended for all of IGV.
+     * <p/>
+     * Example
+     * java -jar Denable.tools=true igv.jar
+     * <p/>
+     * getPersistent("enable.tools", null) returns "true"
+     * and saves it to preferences, so a subsequent invocation
+     * will return true as well:
+     * java -jar igv.jar
+     * getPersistent("enable.tools", "false") returns "true" also
+     *
+     * @param key
+     * @param def default value. NOT SAVED
+     * @return
+     * @see org.igv.session.Session#getPersistent(String, String)
+     */
+    public String getPersistent(String key, String def) {
+        String value = System.getProperty(key);
+        if (value != null) {
+            put(key, value);
+            return value;
+        } else {
+            return get(key, def);
+        }
+    }
+
+    /**
+     * Migrate old preferences
+     */
+    private void migrateUserPreferences() {
+
+        // Borders between tracks are no longer optional -- see TrackPanelDivider -- so these are dropped.
+        userPreferences.remove(TRACK_DRAW_BORDERS);
+        userPreferences.remove(CHART_DRAW_TOP_BORDER);
+        userPreferences.remove(CHART_DRAW_BOTTOM_BORDER);
+    }
+
+    public void print(PrintWriter pw) {
+        for (Map.Entry<String, String> entry : userPreferences.entrySet()) {
+            if (!overrideKeys.contains(entry.getKey())) {
+                pw.print(entry.getKey());
+                pw.print("=");
+                pw.println(entry.getValue());
+            }
+        }
+    }
+
+
+}

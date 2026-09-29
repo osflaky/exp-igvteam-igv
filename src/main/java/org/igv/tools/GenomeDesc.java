@@ -1,0 +1,26 @@
+package org.igv.tools;
+
+import java.util.List;
+
+/**
+ * @author jrobinso
+ */
+public class GenomeDesc {
+
+    String genomeId;
+    List<Chrom> chromosomes;
+    long length;
+
+    public long getLength() {
+        return length;
+    }
+
+
+    //public long getCumulativeOffset(chr)
+    //genome.getChromosomeLength(chr)
+    class Chrom {
+
+        String name;
+        int length;
+    }
+}

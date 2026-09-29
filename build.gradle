@@ -1,0 +1,491 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+}
+
+plugins {
+    id('java')
+    id('maven-publish')
+    id('application')
+}
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+    maven {
+        name = "sonatypeSnapshots"
+        url = uri("https://central.sonatype.com/repository/maven-snapshots/")
+        mavenContent { snapshotsOnly() }
+    }
+}
+
+import org.apache.tools.ant.filters.ReplaceTokens
+
+application {
+    mainClass = 'org.igv.ui.Main'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+sourceSets {
+    main {
+        resources {
+            srcDirs = ['src/main/resources', 'src/main/resources-jlfgr-1_0']
+            exclude "**/*LICENSE*", "**/META-INF, **/log4j2_*.xml"
+        }
+    }
+}
+
+configurations {
+
+    implementation {
+        exclude group: 'com.google.code.findbugs', module: 'annotations'
+        exclude group: 'com.google.code.findbugs', module: 'jsr305'
+        exclude group: 'com.google.errorprone'
+        exclude group: 'com.google.guava', module: 'listenablefuture'
+        exclude group: 'com.google.guava', module: 'failureaccess'
+        exclude group: 'com.github.lucarosellini.rJava', module: 'JRI'
+        exclude group: 'commons-beanutils', module: 'commons-beanutils'
+        exclude group: 'ch.qos.logback', module: 'logback-classic'
+        exclude group: 'io.netty', module: 'netty-codec-http2'
+        exclude group: 'com.martiansoftware', module: 'jsap'
+        exclude group: 'colt', module: 'colt'
+        exclude group: 'com.thoughtworks.xstream', module: 'xstream'
+        exclude group: 'org.reflections', module: 'reflections'
+        exclude group: 'org.codehaus.mojo', module: 'animal-sniffer-annotations'
+        exclude group: 'org.checkerframework', module: 'checker-qual'
+        exclude group: 'com.ibm.icu', module: 'icu4j'
+
+        exclude group: 'xmlpull', module: 'xmlpull'
+        exclude group: 'xpp3', module: 'xpp3_min'
+
+        exclude group: 'org.apache.ant', module: 'ant'
+        exclude group: 'org.apache.ant', module: 'ant-launcher'
+        exclude group: 'org.apache.commons', module: 'commons-math'
+
+        // Batik deps exclusions
+        exclude group: 'org.apache.xmlgraphics', module: 'batik-script'
+        exclude group: 'org.apache.xmlgraphics', module: 'batik-bridge'
+        exclude group: 'org.apache.xmlgraphics', module: 'batik-anim'
+        exclude group: 'org.apache.xmlgraphics', module: 'batik-css'
+        exclude group: 'org.apache.xmlgraphics', module: 'batik-gvt'
+
+        exclude group: 'xml-apis', module: 'xml-apis'
+        exclude group: 'xml-apis', module: 'xml-apis-ext'
+        exclude group: 'xalan', module: 'serializer'
+        exclude group: 'xalan', module: 'xalan'
+
+        exclude group: 'org.xerial.snappy', module: 'snappy-java'
+
+        // Amazon deps exclusions
+        // IGV uses only the synchronous AWS clients (apache-client), so the netty-based
+        // async client and its netty transitives are not needed.
+        exclude group: 'software.amazon.awssdk', module: 'netty-nio-client'
+        //exclude group: 'software.amazon', module: 'flow'
+        //exclude group: 'software.amazon.awssdk', module: 'annotations'
+    }
+}
+
+def amazonVersion = '2.30.17'
+def xmlGraphicsVersion = '1.17'
+
+dependencies {
+    implementation(
+
+            [group: 'org.apache.commons', name: 'commons-math3', version: '3.6.1'],
+            [group: 'commons-io', name: 'commons-io', version: '2.14.0'],
+            [group: 'org.apache.commons', name: 'commons-compress', version: '1.26.0'],
+            [group: 'org.apache.commons', name: 'commons-jexl', version: '2.1.1'],
+            [group: 'org.apache.commons', name: 'commons-lang3', version: '3.18.0'],
+            [group: 'com.github.samtools', name: 'htsjdk', version: '5.0.0'],
+            [group: 'org.swinglabs', name: 'swing-layout', version: '1.0.3'],
+            [group: 'com.formdev', name: 'jide-oss', version: '3.7.12'],
+            [group: 'com.google.guava', name: 'guava', version: '32.1.3-jre'],
+            [group: 'org.apache.xmlgraphics', name: 'batik-dom', version: xmlGraphicsVersion],
+            [group: 'org.apache.xmlgraphics', name: 'batik-svggen', version: xmlGraphicsVersion],
+            [group: 'org.apache.xmlgraphics', name: 'batik-codec', version: xmlGraphicsVersion],
+            [group: 'org.netbeans.external', name: 'AbsoluteLayout', version: 'RELEASE110'],
+            [group: 'com.formdev', name: 'flatlaf', version: '3.5.4', classifier: 'no-natives'],
+            [group: 'org.json', name: 'json', version: '20250517'],
+
+            // Amazon deps
+            [group: 'software.amazon.awssdk', name: 'cognitoidentity', version: amazonVersion],
+            [group: 'software.amazon.awssdk', name: 'sts', version: amazonVersion],
+            [group: 'software.amazon.awssdk', name: 's3', version: amazonVersion],
+            [group: 'software.amazon.awssdk', name: 'sso', version: amazonVersion],
+
+            // This is a transitive dependency from amazon but due to modularization changes between
+            // 1.20 and 1.3.0 we need to specify it here.
+            // This can be removed when amazon moves from 1.2.0 -> 1.3.0 and updates it's module requirements
+            // See https://logging.apache.org/blog/2023/12/02/apache-common-logging-1.3.0.html
+            [group: 'commons-logging', name: 'commons-logging', version: '1.3.0']
+    )
+
+
+    testImplementation(
+            [group: 'junit', name: 'junit', version: '4.13.2']
+    )
+    testRuntimeOnly(
+           [group: 'org.junit.vintage', name:'junit-vintage-engine', version:'5.8.2'] ,
+           //required by gradle 9+
+           //see https://docs.gradle.org/8.10.1/userguide/upgrading_version_8.html#test_framework_implementation_dependencies
+           [group: 'org.junit.platform', name:'junit-platform-launcher']
+
+    )
+}
+
+
+processResources {
+    // Set the current timestamp for release builds; pass in a blank property to enable (i.e. -Ptimestamp="" at CLI)
+    if (timestamp == "") {
+        timestamp = new Date().format("MM/dd/yyyy hh:mm aa")
+    }
+
+    filesMatching('about.properties') {
+        filter(ReplaceTokens,
+                tokens: [VERSION  : version, BUILD: buildNumber, DEFAULT_MASTER_RESOURCE_URL: dataServerUrl,
+                         TIMESTAMP: timestamp])
+    }
+}
+
+jar {
+    archiveFileName = 'igv.jar'
+    manifest {
+        attributes(
+                "Permissions": "all-permissions",
+                "Application-Name": "IGV",
+                "Built-By": System.getProperty('user.name'),
+                "Main-Class": application.mainClass,
+        )
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.withType(Test).configureEach {
+    systemProperties.clear()
+    systemProperties.putAll( System.getProperties() )
+    systemProperties['java.awt.headless'] = 'true'
+    systemProperties['make.fail'] = 'false'
+    systemProperties['include.longrunning'] = 'false'
+    systemProperties['ignore.ioexceptions'] = 'false'
+    systemProperties['samjdk.snappy.disable'] = 'true'
+    maxHeapSize = '2g'
+    maxParallelForks = Runtime.runtime.availableProcessors().intdiv(2) ?: 1
+    useJUnitPlatform()
+}
+
+tasks.register('createDist', Copy) {
+    dependsOn jar
+    from("src/main/resources/org/igv/ui/resources/IGV_64.png")
+    from("scripts") {
+        include '*.bat'
+        include '*.sh'
+        include 'igv.command'
+        include 'igv.args'
+        include 'readme.txt'
+        include 'igvtools*'
+    }
+    with copySpec {
+        from("${buildDir}/libs")
+        // Removed local 'lib' directory copy; not used in this project
+        into "lib"
+    }
+    // Copies all Maven-fetched dependency jars
+    with copySpec {
+        from configurations.runtimeClasspath {
+            exclude '**/*log4j*.jar'
+        }
+        into "lib"
+        duplicatesStrategy DuplicatesStrategy.EXCLUDE
+    }
+    with copySpec { from("genomes/sizes") {} into "lib/genomes" }
+
+    into "${buildDir}/IGV-dist"
+}
+
+tasks.distZip.enabled = false
+tasks.distTar.enabled = false
+tasks.startScripts.enabled = false
+
+// Create the platform agnostic zip distribution
+tasks.register('createDistZip', Zip) {
+    dependsOn createDist
+    archiveFileName = "IGV_${version}.zip"
+    from("${buildDir}/IGV-dist")
+    into "IGV_${version}"
+}
+
+// Create a linux distribution for IGV , excluding igvtools.  Basically identical to generic dist without window and mac scripts
+tasks.register('createLinuxDistZip', Zip) {
+    dependsOn createDist
+    archiveFileName = "IGV_Linux_${version}.zip"
+    from("${buildDir}/IGV-dist") {
+        exclude "*.bat"
+        exclude "*.command"
+        exclude 'igvtools*'
+        exclude 'lib/genomes'
+    }
+    into "IGV_Linux_${version}"
+}
+
+// Create a linux distrubtion with bundled Java
+tasks.register('createLinuxWithJavaDistZip', Zip) {
+    dependsOn createDist
+    archiveFileName = "IGV_Linux_${version}_WithJava.zip"
+    with copySpec { from jdkBundleLinux into "jdk-21" }
+    from("${buildDir}/IGV-dist") {
+        exclude "*.bat"
+        exclude "*.command"
+        exclude 'igvtools*'
+        exclude 'lib/genomes'
+    }
+    into "IGV_Linux_${version}"
+    doLast {
+        if (jdkBundleLinux == "") {
+            throw new GradleException("Required property not set: jdkBundleLinux");
+        }
+    }
+}
+
+tasks.register('createMacDistZip', Zip) {
+    dependsOn createDist
+    archiveFileName = "IGV_MacApp_${version}.zip"
+    from("${buildDir}/IGV-dist") {
+        exclude "*.bat"
+        exclude "*_hidpi*"
+        exclude "igvtools*"
+        exclude 'lib/genomes'
+    }
+
+    into "IGV_MacApp_${version}"
+}
+
+tasks.register('createMacWithJavaDistZip', Zip) {
+    dependsOn createDist
+    archiveFileName = "IGV_MacApp_${version}_WithJava.zip"
+    with copySpec { from jdkBundleMac into "jdk-21" }
+    from("${buildDir}/IGV-dist") {
+        exclude "*.bat"
+        exclude "*_hidpi*"
+        exclude "igvtools*"
+        exclude 'lib/genomes'
+    }
+    into "IGV_MacApp_${version}"
+    doLast {
+        if (jdkBundleMac == "") {
+            throw new GradleException("Required property not set: jdkBundleMac");
+        }
+    }
+}
+
+tasks.register('createMacAppDist', Copy) {
+    dependsOn createDist
+    with copySpec {
+        from("scripts/mac.app") {
+            exclude "Contents/Info.plist.template"
+            exclude "Contents/MacOS/IGV.sh"
+            exclude "Contents/MacOS/main.c"
+        }
+        into "IGV_${version}.app"
+    }
+    with copySpec {
+        from("scripts/mac.app/Contents/Info.plist.template")
+        filter(ReplaceTokens, tokens: [VERSION: version])
+        rename "Info.plist.template", "Info.plist"
+        into "IGV_${version}.app/Contents"
+    }
+    with copySpec {
+        from("src/main/resources/org/igv/ui/resources/IGV_64.png")
+        into "IGV_${version}.app/Contents/Resources"
+    }
+    with copySpec {
+        from("${buildDir}/IGV-dist/") include 'igv.args'
+        into "IGV_${version}.app/Contents/Java/"
+    }
+    with copySpec {
+        from("${buildDir}/IGV-dist/lib") include '*.jar'
+        into "IGV_${version}.app/Contents/Java/lib"
+    }
+    into "${buildDir}/IGV-MacApp-dist"
+
+
+    doLast {
+        project.exec { commandLine('chmod', '775', "${buildDir}/IGV-MacApp-dist/IGV_${version}.app") }
+
+        // A hack -- mac apps cannot be notarized with the "snappy" module
+        project.delete(
+                files("${buildDir}/IGV-MacApp-dist/IGV_${version}.app/Contents/Java/lib/snappy-java-1.1.10.5-module.jar")
+        )
+    }
+}
+
+tasks.register('createMacAppDistZip', Zip) {
+    dependsOn createMacAppDist
+    archiveFileName = "IGV_MacApp_${version}.zip"
+    from("${buildDir}/IGV-MacApp-dist")
+
+    doLast {
+        //project.exec { commandLine('chmod', '775', createMacAppDistZip.archiveFileName) }
+    }
+}
+
+tasks.register('createMacAppWithJavaDistZip', Zip) {
+    dependsOn createMacAppDist
+    archiveFileName = "IGV_MacApp_${version}_WithJava.zip"
+    with copySpec { from jdkBundleMac into "IGV_${version}.app/Contents/jdk-21" }
+    from("${buildDir}/IGV-MacApp-dist")
+
+    doLast {
+        if (jdkBundleMac == "") {
+            throw new GradleException("Required property not set: jdkBundleMac");
+        }
+        //project.exec { commandLine('chmod', '775', createMacAppWithJavaDistZip.archiveFileName) }
+    }
+}
+
+tasks.register('createMacAppIntelWithJavaDistZip', Zip) {
+    dependsOn createMacAppDist
+    archiveFileName = "IGV_MacAppIntel_${version}_WithJava.zip"
+    with copySpec { from jdkBundleMacIntel into "IGV_${version}.app/Contents/jdk-21" }
+    from("${buildDir}/IGV-MacApp-dist")
+
+    doLast {
+        if (jdkBundleMacIntel == "") {
+            throw new GradleException("Required property not set: jdkBundleMacIntel");
+        }
+        //project.exec { commandLine('chmod', '775', createMacAppWithJavaDistZip.archiveFileName) }
+    }
+}
+
+tasks.register('createWinDist', Copy) {
+    dependsOn createDist
+    with copySpec {
+        from("${buildDir}/IGV-dist") {
+            exclude "*.sh"
+            exclude "*.command"
+            exclude "igvtools*"
+            exclude "igvtools_gui"
+            exclude "igvtools_gui_hidpi"
+            exclude 'lib/genomes'
+        }
+        from("resources") { include "IGV_64.ico" }
+        into "IGV_${version}"
+    }
+    with copySpec {
+        // Create a build-specific NSIS installer script.
+        from("scripts/nsis/installer.nsi")
+        filter(ReplaceTokens, tokens: [VERSION: version, JVM_INCL: ''])
+    }
+    from("scripts/nsis") { include "license_win.txt" }
+    into "${buildDir}/IGV-WinExe-dist"
+}
+
+tasks.register('createWinWithJavaDist', Copy) {
+    dependsOn createWinDist
+    with copySpec { from jdkBundleWindows into "IGV_${version}/jdk-21" }
+    with copySpec {
+        from("${buildDir}/IGV-WinExe-dist/IGV_${version}") { exclude 'installer.nsi' }
+        into "IGV_${version}"
+    }
+    with copySpec {
+        from("scripts/nsis/installer.nsi")
+        filter(ReplaceTokens, tokens: [VERSION: version, JVM_INCL: '-WithJava'])
+    }
+    from("scripts/nsis") { include "license_win.txt" }
+    into "${buildDir}/IGV-WinExe-WithJava-dist"
+
+    doLast {
+        if (jdkBundleWindows == "") {
+            throw new GradleException("Required property not set: jdkBundleWindows");
+        }
+    }
+}
+
+tasks.register('createWinExeDist', Exec) {
+    dependsOn createWinDist
+    commandLine(makensisCommand, "-O${buildDir}/tmp/nsis-WithJava-build.log",
+            "${buildDir}/IGV-WinExe-dist/installer.nsi")
+    doLast {
+        if (makensisCommand == "") {
+            throw new GradleException("Required property not set: makensisCommand");
+        }
+    }
+}
+
+tasks.register('createWinWithJavaExeDist', Exec) {
+    dependsOn createWinWithJavaDist
+    commandLine(makensisCommand, "-O${buildDir}/tmp/nsis-build.log",
+            "${buildDir}/IGV-WinExe-WithJava-dist/installer.nsi")
+    doLast {
+        if (makensisCommand == "") {
+            throw new GradleException("Required property not set: makensisCommand");
+        }
+        if (jdkBundleWindows == "") {
+            throw new GradleException("Required property not set: jdkBundleWindows");
+        }
+    }
+}
+
+tasks.register('signWinExeDist', Exec) {
+    dependsOn createWinExeDist
+    standardInput = new ByteArrayInputStream(keyPassword.getBytes());
+    commandLine(signcodeCommand, "-spc", spcFile, "-v", pvkFile, "-a", "sha512",
+            "-\$", "commercial", "-n", "IGV ${version}", "-i", "http://www.igv.org/",
+            "-t", tsaurl, "-tr", "10", "${buildDir}/IGV-WinExe-dist/IGV_Win_${version}-installer.exe")
+    doLast {
+        if (signcodeCommand == "") {
+            throw new GradleException("Required property not set: signcodeCommand");
+        }
+    }
+}
+
+tasks.register('signWinExeWithJavaDist', Exec) {
+    dependsOn createWinWithJavaExeDist
+    standardInput = new ByteArrayInputStream(keyPassword.getBytes());
+    commandLine(signcodeCommand, "-spc", spcFile, "-v", pvkFile, "-a", "sha512",
+            "-\$", "commercial", "-n", "IGV ${version}", "-i", "http://www.igv.org/",
+            "-t", tsaurl, "-tr", "10", "${buildDir}/IGV-WinExe-WithJava-dist/IGV_Win_${version}-WithJava-installer.exe")
+    doLast {
+        if (signcodeCommand == "") {
+            throw new GradleException("Required property not set: signcodeCommand");
+        }
+    }
+}
+
+tasks.register('fullJar', Jar) {
+    dependsOn jar
+    // Based on https://discuss.gradle.org/t/removing-dependencies-from-a-jar-file-during-jar-task/5521/3
+    from {
+        ((configurations.compile - configurations.default) + "${buildDir}/libs/igv.jar").collect {
+            zipTree(it)
+        }
+    } {
+        exclude "META-INF/**"
+    }
+
+    manifest {
+        attributes(
+                "Permissions": "all-permissions",
+                "Application-Name": "IGV",
+                "Built-By": System.getProperty('user.name'),
+                "Main-Class": application.mainClass,
+
+                "Class-Path": configurations.runtimeClasspath.collect { it.getName() }.join(' ')
+        )
+    }
+}
+
+//build.dependsOn createDistZip,createLinuxDistZip,createMacDistZip,createMacAppDistZip
+
+//if (!makensisCommand == "" && !signcodeCommand == "") {
+//    dependsOn signWinExeDist
+//}

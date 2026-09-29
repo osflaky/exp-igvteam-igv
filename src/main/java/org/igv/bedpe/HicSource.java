@@ -1,0 +1,203 @@
+package org.igv.bedpe;
+
+import org.igv.feature.genome.Genome;
+import org.igv.hic.ContactRecord;
+import org.igv.hic.HicFile;
+import org.igv.hic.NormalizationVector;
+import org.igv.hic.Region;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
+
+/**
+ * Java port of the JavaScript HicSource.
+ * Assumes an instance of HicFile is provided via config as "_hicFile".
+ */
+public class HicSource implements InteractionSource {
+
+    private final Object genome; // keep generic, expects method getChromosomeName(String)
+    private final HicFile hicFile;
+
+    private final int binThreshold = 5;
+
+    public HicSource(String path, Genome genome) throws IOException {
+
+        this.hicFile = new HicFile(path, genome);
+        this.genome = genome;
+    }
+
+
+    /**
+     * Get features for the given region, resolution, and normalization.
+     */
+    @Override
+    public List<BedPE> getFeatures(String chr, int start, int end, double bpPerPixel, String normalization, int maxFeatureCount) throws IOException {
+
+        final int binSize = hicFile.getBinSize(chr, bpPerPixel);
+
+        List<ContactRecord> records = getRecords(chr, start, end, binSize, normalization);
+
+        if (records.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        //Determine bin range and collect values to determine count threshold.  The count threshold is defined
+        // as the value at the maxFeatureCount position in the sorted list of values (excluding values from
+        // bins within binThreshold, which will be filtered).
+        List<Float> values = new ArrayList<>();
+        int binMin = Integer.MAX_VALUE;
+        int binMax = 0;
+        for (ContactRecord rec : records) {
+            int b1 = rec.bin1();
+            int b2 = rec.bin2();
+            if (Math.abs(b1 - b2) > this.binThreshold) {
+                values.add(rec.normCounts());
+            }
+            if (b1 < binMin) binMin = b1;
+            if (b2 < binMin) binMin = b2;
+            if (b1 > binMax) binMax = b1;
+            if (b2 > binMax) binMax = b2;
+        }
+
+        if (values.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        values.sort(Collections.reverseOrder());
+        int t = Math.min(maxFeatureCount, values.size() - 1);
+        double threshold = values.get(t);
+        double min = values.get((int) Math.floor(t * 0.05));
+        double max = values.get((int) Math.floor(t * 0.95));
+
+
+        List<ContactRecord> thresholdRecords = new ArrayList<>();
+        List<ContactRecord> significantRecords = new ArrayList<>();
+        for (ContactRecord rec : records) {
+            int bin1 = rec.bin1();
+            int bin2 = rec.bin2();
+            if (Math.abs(bin1 - bin2) <= this.binThreshold) continue;
+
+            float counts = rec.normCounts();
+            if (counts > threshold) {
+                significantRecords.add(rec);
+            } else if (counts == threshold) {
+                thresholdRecords.add(rec);
+            }
+        }
+
+        // Now add in threshold records
+        int nThreshold = maxFeatureCount - significantRecords.size();
+        if (nThreshold > 0 && !thresholdRecords.isEmpty()) {
+            if (thresholdRecords.size() <= nThreshold) {
+                significantRecords.addAll(thresholdRecords);
+            } else {
+                // Reservoir sampling directly into significantRecords
+                // 1. Fill the reservoir with the first nThreshold elements
+                significantRecords.addAll(thresholdRecords.subList(0, nThreshold));
+                int reservoirStart = significantRecords.size() - nThreshold;
+
+                // 2. Iterate through the rest of the items and replace elements in the reservoir
+                for (int i = nThreshold; i < thresholdRecords.size(); i++) {
+                    int j = ThreadLocalRandom.current().nextInt(0, i + 1);
+                    if (j < nThreshold) {
+                        significantRecords.set(reservoirStart + j, thresholdRecords.get(i));
+                    }
+                }
+            }
+        }
+
+        // Convert contact records to features
+        List<BedPE> features = new ArrayList<>();
+        String c = getChromosomeNameFromGenome(chr);
+        for (ContactRecord rec : significantRecords) {
+
+            int start1 = rec.bin1() * binSize;
+            int end1 = start1 + binSize;
+            int start2 = rec.bin2() * binSize;
+            int end2 = start2 + binSize;
+
+            HicFeature f = new HicFeature(c, start1, end1, c, start2, end2, rec.counts(), rec.normCounts());
+            int score = (max > min) ? (int) Math.round(200 + Math.min(Math.max((f.getValue() - min) / (max - min), 0), 1) * 600) : 800;
+            f.setScore(score);
+            features.add(f);
+        }
+
+        features.sort(Comparator.comparingInt(a -> a.getStart1()));
+
+        return features;
+    }
+
+    @Override
+    public List<String> getNormalizationTypes() {
+        return hicFile.getNormalizationTypes();
+    }
+
+    @Override
+    public boolean hasNormalizationVector(String type, String chr, double bpPerPixel) {
+        return hicFile.hasNormalizationVector(type, chr, "BP", hicFile.getBinSize(chr, bpPerPixel));
+    }
+
+    /**
+     * Get contact records for the given region and bin size.  We need to query 3 blocks of the matrix
+     *   (1) the diagonal block corresponding to the region.  This has captured contacts within the region
+     *   (2) the block to the left of the diagonal block.  This captures contacts between the region and the upstream adjacent region
+     *   (3) the block to the right of the diagonal block.  This captures contacts between the region and the downstream adjacent region
+     * @param chr
+     * @param start
+     * @param end
+     * @param binSize
+     * @return
+     * @throws IOException
+     */
+    private List<ContactRecord> getRecords(String chr, int start, int end, int binSize, String normalization) throws IOException {
+
+        final Region region1 = new Region(chr, start, end);
+        List<ContactRecord> records = hicFile.getContactRecords(
+                region1,
+                region1,
+                "BP",
+                binSize,
+                normalization,
+                false
+        );
+
+        if (start > 0) {
+            Region adjacent = new Region(chr, Math.max(0, start - (end - start)), start);
+            List<ContactRecord> adjacentRecords = hicFile.getContactRecords(region1, adjacent, "BP", binSize, "NONE", false);
+            records.addAll(adjacentRecords);
+        }
+
+        Region adjacent2 = new Region(chr, end, end + (end - start));
+        List<ContactRecord> adjacentRecords2 = hicFile.getContactRecords(region1, adjacent2, "BP", binSize, "NONE", false);
+        records.addAll(adjacentRecords2);
+
+        return records;
+    }
+
+    private String getChromosomeNameFromGenome(String chr) {
+        try {
+            // attempt reflective call genome.getChromosomeName(chr)
+            java.lang.reflect.Method m = genome.getClass().getMethod("getChromosomeName", String.class);
+            Object res = m.invoke(genome, chr);
+            return res != null ? res.toString() : chr;
+        } catch (Exception e) {
+            return chr;
+        }
+    }
+
+    public String getNVIString() {
+        return hicFile.getNVIString();
+    }
+
+    public void setNVIString(String nviString) {
+        hicFile.setNVIString(nviString);
+    }
+
+    public HicFile getHicFile() {
+        return hicFile;
+    }
+}

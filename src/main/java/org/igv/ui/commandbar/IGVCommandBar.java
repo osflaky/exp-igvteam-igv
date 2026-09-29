@@ -1,0 +1,506 @@
+/*
+ * IGVCommandBar.java
+ *
+ * Created on April 5, 2008, 10:02 AM
+ */
+package org.igv.ui.commandbar;
+
+import com.jidesoft.swing.JideBoxLayout;
+import com.jidesoft.swing.JideButton;
+import com.jidesoft.swing.JideToggleButton;
+import org.igv.Globals;
+import org.igv.event.*;
+import org.igv.feature.genome.Genome;
+import org.igv.feature.genome.GenomeManager;
+import org.igv.logging.LogManager;
+import org.igv.logging.Logger;
+import org.igv.prefs.Constants;
+import org.igv.prefs.PreferencesManager;
+import org.igv.session.History;
+import org.igv.ui.IGV;
+import org.igv.ui.ShowDetailsBehavior;
+import org.igv.ui.UIConstants;
+import org.igv.ui.action.ReloadTracksMenuAction;
+import org.igv.ui.panel.FrameManager;
+import org.igv.ui.panel.IGVPopupMenu;
+import org.igv.ui.panel.ReferenceFrame;
+import org.igv.ui.panel.ZoomSliderPanel;
+import org.igv.ui.util.IconFactory;
+import org.igv.ui.util.UIUtilities;
+
+import javax.swing.*;
+import javax.swing.border.LineBorder;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+
+/**
+ * @author jrobinso
+ */
+public class IGVCommandBar extends javax.swing.JPanel implements IGVEventObserver {
+
+    private static final Logger log = LogManager.getLogger(IGVCommandBar.class);
+
+    final static String MODIFY_DETAILS_TOOLTIP = "Modify popup text behavior in data panels";
+    final static int DEFAULT_CHROMOSOME_DROPDOWN_WIDTH = 120;
+
+    private ChromosomeComboBox chromosomeComboBox;
+    private GenomeComboBox genomeComboBox;
+    private JideToggleButton roiToggleButton;
+    private JideButton detailsBehaviorButton;
+    private JideToggleButton rulerLineButton;
+    private SearchTextField searchTextField;
+    private JPanel zoomControl;
+
+    private JideButton backButton;
+    private JideButton forwardButton;
+    private JideToggleButton squishTracksButton;
+
+    private ShowDetailsBehavior detailsBehavior;
+
+
+    public IGVCommandBar() {
+
+        initComponents();
+
+        // Post creation widget setup.
+        refreshGenomeListComboBox();
+
+        String currentChr = FrameManager.getDefaultFrame().getChrName();
+        boolean isWholeGenome = currentChr.equals(Globals.CHR_ALL);
+
+        chromosomeComboBox.setSelectedItem(currentChr);
+        roiToggleButton.setEnabled(!isWholeGenome);
+        zoomControl.setEnabled(!isWholeGenome && !FrameManager.isGeneListMode());
+
+        detailsBehaviorButton.addMouseListener(new MouseAdapter() {
+            public void mousePressed(MouseEvent e) {
+                getPopupMenuToolTipBehavior().show(e.getComponent(), e.getX(), e.getY());
+            }
+        });
+
+        IGVEventBus.getInstance().subscribe(ViewChange.class, this);
+        IGVEventBus.getInstance().subscribe(GenomeChangeEvent.class, this);
+        IGVEventBus.getInstance().subscribe(GenomeResetEvent.class, this);
+    }
+
+
+    private JPopupMenu getPopupMenuToolTipBehavior() {
+        final JPopupMenu popup = new IGVPopupMenu();
+        for (final ShowDetailsBehavior behavior : ShowDetailsBehavior.values()) {
+            JCheckBoxMenuItem menuItem = new JCheckBoxMenuItem(behavior.getLabel());
+            menuItem.setSelected(detailsBehavior == behavior);
+            menuItem.addActionListener(new AbstractAction() {
+                public void actionPerformed(ActionEvent e) {
+                    detailsBehavior = behavior;
+                    PreferencesManager.getPreferences().put(Constants.DETAILS_BEHAVIOR_KEY, behavior.name());
+                }
+            });
+            popup.add(menuItem);
+        }
+        return popup;
+    }
+
+    public ShowDetailsBehavior getDetailsBehavior() {
+        return detailsBehavior;
+    }
+
+
+    public void setGeneListMode(boolean geneListMode) {
+
+        chromosomeComboBox.setEnabled(!geneListMode);
+        if (geneListMode) searchTextField.setText("");
+        zoomControl.setEnabled(!geneListMode);
+    }
+
+    public void updateCurrentCoordinates() {
+
+        if (IGV.hasInstance()) {
+
+            if (GenomeManager.getInstance().getCurrentGenome() == Genome.NULL_GENOME) {
+                UIUtilities.invokeOnEventThread(() -> searchTextField.setText(""));
+            } else {
+                String p = "";
+                ReferenceFrame defaultFrame = FrameManager.getDefaultFrame();
+                final String chrName = defaultFrame.getChrName();
+                if (!Globals.CHR_ALL.equals(chrName) && !FrameManager.isGeneListMode()) {
+                    p = defaultFrame.getFormattedLocusString();
+                }
+                final String position = p;
+                final History history = IGV.getInstance().getSession().getHistory();
+
+                UIUtilities.invokeOnEventThread(() -> {
+                    searchTextField.setText(position);
+                    forwardButton.setEnabled(history.canGoForward());
+                    backButton.setEnabled(history.canGoBack());
+                    roiToggleButton.setEnabled(!Globals.CHR_ALL.equals(chrName));
+                    zoomControl.setEnabled(!Globals.CHR_ALL.equals(chrName) && !FrameManager.isGeneListMode());
+                });
+            }
+        }
+    }
+
+
+    public void refreshGenomeListComboBox() {
+        UIUtilities.invokeAndWaitOnEventThread(() -> genomeComboBox.refreshGenomeListComboBox());
+    }
+
+
+    /**
+     * Adjust the popup for the combobox to be at least as wide as
+     * the widest item.
+     *
+     * @param box the combo box to adjust
+     */
+    private void adjustPopupWidth(JComboBox<?> box) {
+        if (box.getItemCount() == 0) return;
+        Object comp = box.getUI().getAccessibleChild(box, 0);
+        if (!(comp instanceof JPopupMenu popup)) {
+            return;
+        }
+        JScrollPane scrollPane = null;
+        for (Component scomp : popup.getComponents()) {
+            if (scomp instanceof JScrollPane) {
+                scrollPane = (JScrollPane) scomp;
+            }
+        }
+        if (scrollPane == null) return;
+
+
+        int rendererWidth = box.getWidth();
+        Dimension size = scrollPane.getPreferredSize();
+        size.width = Math.max(size.width, rendererWidth);
+        scrollPane.setPreferredSize(size);
+        scrollPane.setMaximumSize(size);
+        scrollPane.revalidate();
+    }
+
+
+    private void homeButtonActionPerformed(java.awt.event.ActionEvent evt) {
+        Genome genome = GenomeManager.getInstance().getCurrentGenome();
+        IGV.getInstance().setGeneList(null);
+        if (genome != null) {
+            String chrName = genome.getHomeChromosome();
+            if (chrName != null && !chrName.equals(chromosomeComboBox.getSelectedItem())) {
+                FrameManager.getDefaultFrame().changeChromosome(chrName, false);
+            }
+        }
+    }
+
+    private void refreshButtonActionPerformed(java.awt.event.ActionEvent evt) {
+
+        IGVEventBus.getInstance().post(new org.igv.event.RefreshEvent());
+        (new ReloadTracksMenuAction("", -1, IGV.getInstance())).actionPerformed(evt);
+
+    }
+
+    private void goButtonActionPerformed(java.awt.event.ActionEvent evt) {    // GEN-FIRST:event_goButtonActionPerformed
+        String searchText = searchTextField.getText();
+        searchByLocus(searchText);
+    }
+
+    /**
+     * The tooltip describes the action a click will perform, so it depends on the current state.
+     */
+    private void updateSquishTracksTooltip() {
+        squishTracksButton.setToolTipText(squishTracksButton.isSelected() ?
+                "Expand all tracks" :
+                "Squish all tracks, including tracks loaded later");
+    }
+
+    private void roiToggleButtonActionPerformed(java.awt.event.ActionEvent evt) {    // GEN-FIRST:event_roiToggleButtonActionPerformed
+        if (roiToggleButton.isSelected()) {
+            IGV.getInstance().beginROI(roiToggleButton);
+        } else {
+            IGV.getInstance().endROI();
+        }
+    }
+
+
+    public void receiveEvent(IGVEvent e) {
+
+        if (e instanceof ViewChange event) {
+            if (event.type == ViewChange.Type.ChromosomeChange || event.type == ViewChange.Type.LocusChange) {
+                String chrName = FrameManager.getDefaultFrame().getChrName();
+                roiToggleButton.setEnabled(!Globals.CHR_ALL.equals(chrName));
+                zoomControl.setEnabled(!Globals.CHR_ALL.equals(chrName) && !FrameManager.isGeneListMode());
+                String displayName = GenomeManager.getInstance().getCurrentGenome().getChromosomeDisplayName(chrName);
+                if (!displayName.equals(chromosomeComboBox.getSelectedItem())) {
+                    chromosomeComboBox.setSelectedItem(displayName);
+                }
+            }
+
+            updateCurrentCoordinates();
+            repaint(); // TODO Is this necessary?
+        } else if (e instanceof GenomeChangeEvent event) {
+            Genome genome = event.genome();
+            refreshGenomeListComboBox();
+            chromosomeComboBox.updateChromosFromGenome(genome);
+
+            String chrName = FrameManager.getDefaultFrame().getChrName();
+            zoomControl.setEnabled(!Globals.CHR_ALL.equals(chrName) && !FrameManager.isGeneListMode());
+            updateCurrentCoordinates();
+        } else if (e instanceof GenomeResetEvent) {
+            refreshGenomeListComboBox();
+        } else {
+            log.warn("Unknown event class: " + e.getClass());
+        }
+    }
+
+    // Set the focus in the search box
+    public void focusSearchBox() {
+        searchTextField.requestFocusInWindow();
+        searchTextField.selectAll();
+    }
+
+
+    public void searchByLocus(final String searchText) {
+
+        if ((searchText != null) && (!searchText.isEmpty())) {
+            String homeChr = GenomeManager.getInstance().getCurrentGenome().getHomeChromosome();
+            if (searchText.equalsIgnoreCase(homeChr)) {
+                homeButtonActionPerformed(null);
+            } else {
+                searchTextField.setText(searchText);
+                searchTextField.searchByLocus(searchText);
+            }
+        }
+    }
+
+
+    /**
+     * This method is called from within the constructor
+     */
+    private void initComponents() {
+
+        setMinimumSize(new Dimension(200, 32));
+
+        JideBoxLayout layout = new JideBoxLayout(this, JideBoxLayout.X_AXIS);
+
+        setLayout(layout);
+
+        boolean darkMode = Globals.isDarkMode();
+
+        final String detailsPreference = PreferencesManager.getPreferences().get(Constants.DETAILS_BEHAVIOR_KEY);
+        detailsBehavior = ShowDetailsBehavior.valueOf((detailsPreference.toUpperCase()));
+
+        // This controls the vertical height of the command bar
+
+        JPanel locationPanel = new javax.swing.JPanel();
+        locationPanel.setBorder(new LineBorder(Color.lightGray, 1, true));
+
+        // BorderFactory.createMatteBorder(2, 2, 2, 2, Color.lightGray));
+        // new javax.swing.border.SoftBevelBorder(javax.swing.border.BevelBorder.RAISED));
+        locationPanel.setPreferredSize(new java.awt.Dimension(150, 20));
+        locationPanel.setLayout(new JideBoxLayout(locationPanel, JideBoxLayout.X_AXIS));
+        locationPanel.setAlignmentY(CENTER_ALIGNMENT);
+        locationPanel.add(Box.createRigidArea(new Dimension(10, 36)), JideBoxLayout.FIX);
+
+        genomeComboBox = new GenomeComboBox();
+        genomeComboBox.setMinimumSize(new Dimension(210, 27));
+        genomeComboBox.setPreferredSize(new Dimension(210, 27));
+        genomeComboBox.setMaximumSize(new Dimension(300, 27));
+        genomeComboBox.setToolTipText(UIConstants.CHANGE_GENOME_TOOLTIP);
+
+        genomeComboBox.addPopupMenuListener(new PopupMenuListener() {
+            @Override
+            public void popupMenuWillBecomeVisible(PopupMenuEvent e) {
+                try {
+                    adjustPopupWidth(genomeComboBox);
+                } catch (Exception e1) {
+                    log.warn(e1.getMessage(), e1);
+                }
+            }
+
+            @Override
+            public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
+                //TODO
+            }
+
+            @Override
+            public void popupMenuCanceled(PopupMenuEvent e) {
+                //TODO
+            }
+        });
+
+        locationPanel.add(genomeComboBox, JideBoxLayout.FIX);
+        locationPanel.add(Box.createHorizontalStrut(5), JideBoxLayout.FIX);
+
+
+        chromosomeComboBox = new ChromosomeComboBox();
+        chromosomeComboBox.setToolTipText("Select a chromosome to view");
+        chromosomeComboBox.setMaximumSize(new java.awt.Dimension(DEFAULT_CHROMOSOME_DROPDOWN_WIDTH, 30));
+        chromosomeComboBox.setMinimumSize(new java.awt.Dimension(DEFAULT_CHROMOSOME_DROPDOWN_WIDTH, 30));
+        chromosomeComboBox.setPreferredSize(new java.awt.Dimension(DEFAULT_CHROMOSOME_DROPDOWN_WIDTH, 30));
+
+        locationPanel.add(chromosomeComboBox, JideBoxLayout.FIX);
+        locationPanel.add(Box.createHorizontalStrut(5), JideBoxLayout.FIX);
+
+        searchTextField = new SearchTextField();
+        searchTextField.setMaximumSize(new java.awt.Dimension(250, 15));
+        searchTextField.setMinimumSize(new java.awt.Dimension(100, 28));
+        searchTextField.setPreferredSize(new java.awt.Dimension(230, 28));
+        searchTextField.setAlignmentY(CENTER_ALIGNMENT);
+
+        locationPanel.add(searchTextField, JideBoxLayout.FIX);
+
+        JideButton goButton = new JideButton("Go");
+        // goButton.setButtonStyle(ButtonStyle.TOOLBOX_STYLE);
+
+        // goButton.setPreferredSize(new java.awt.Dimension(30, 30));
+        // goButton.setMaximumSize(new java.awt.Dimension(30, 30));
+        // goButton.setMinimumSize(new java.awt.Dimension(30, 30));
+        // goButton.setText("Go");
+        goButton.setToolTipText("Jump to gene or locus");
+        goButton.addActionListener(this::goButtonActionPerformed);
+        locationPanel.add(goButton, JideBoxLayout.FIX);
+
+        add(locationPanel, JideBoxLayout.FIX);
+
+        add(Box.createHorizontalStrut(10), JideBoxLayout.FIX);
+
+        JPanel toolPanel = new javax.swing.JPanel();
+        toolPanel.setAlignmentX(RIGHT_ALIGNMENT);
+        toolPanel.setLayout(new JideBoxLayout(toolPanel, JideBoxLayout.X_AXIS));
+
+        JideButton homeButton = new com.jidesoft.swing.JideButton();
+        homeButton.setAlignmentX(RIGHT_ALIGNMENT);
+        homeButton.setIcon(new javax.swing.ImageIcon(
+                getClass().getResource("/toolbarButtonGraphics/navigation/Home24.gif")));
+        homeButton.setMaximumSize(new java.awt.Dimension(32, 32));
+        homeButton.setMinimumSize(new java.awt.Dimension(32, 32));
+        homeButton.setPreferredSize(new java.awt.Dimension(32, 32));
+        homeButton.setToolTipText("Jump to whole genome view");
+        homeButton.addActionListener(this::homeButtonActionPerformed);
+        toolPanel.add(homeButton, JideBoxLayout.FIX);
+
+        backButton = new JideButton();
+        backButton.setIcon(new javax.swing.ImageIcon(getClass().getResource(
+                darkMode ? "/images/left-arrow.invert.gif" : "/images/left-arrow.gif")));
+        backButton.setToolTipText("Go back");
+        backButton.setMaximumSize(new java.awt.Dimension(32, 32));
+        backButton.setMinimumSize(new java.awt.Dimension(32, 32));
+        backButton.setPreferredSize(new java.awt.Dimension(32, 32));
+        backButton.addActionListener(evt -> {
+            final History history = IGV.getInstance().getSession().getHistory();
+            history.back();
+        });
+        backButton.setEnabled(false);
+        toolPanel.add(backButton, JideBoxLayout.FIX);
+
+        forwardButton = new JideButton();
+        //forwardButton.setButtonStyle(JideButton.TOOLBOX_STYLE);
+        //forwardButton.setBorder(toolButtonBorder);
+        forwardButton.setIcon(new javax.swing.ImageIcon(getClass().getResource(
+                darkMode ? "/images/right-arrow.invert.gif" : "/images/right-arrow.gif")));
+        forwardButton.setToolTipText("Go forward");
+        forwardButton.setMaximumSize(new java.awt.Dimension(32, 32));
+        forwardButton.setMinimumSize(new java.awt.Dimension(32, 32));
+        forwardButton.setPreferredSize(new java.awt.Dimension(32, 32));
+        forwardButton.addActionListener(evt -> {
+            final History history = IGV.getInstance().getSession().getHistory();
+            history.forward();
+        });
+        forwardButton.setEnabled(false);
+        toolPanel.add(forwardButton, JideBoxLayout.FIX);
+
+        JideButton refreshButton = new com.jidesoft.swing.JideButton();
+        //refreshButton.setButtonStyle(JideButton.TOOLBOX_STYLE);
+        //refreshButton.setBorder(toolButtonBorder);
+        refreshButton.setAlignmentX(RIGHT_ALIGNMENT);
+        refreshButton.setIcon(new javax.swing.ImageIcon(
+                getClass().getResource("/toolbarButtonGraphics/general/Refresh24.gif")));    // NOI18N
+        refreshButton.setMaximumSize(new java.awt.Dimension(32, 32));
+        refreshButton.setMinimumSize(new java.awt.Dimension(32, 32));
+        refreshButton.setPreferredSize(new java.awt.Dimension(32, 32));
+        refreshButton.setToolTipText("Reload tracks and refresh the screen");
+        refreshButton.addActionListener(this::refreshButtonActionPerformed);
+        toolPanel.add(refreshButton, JideBoxLayout.FIX);
+
+
+        Icon regionOfInterestIcon =
+                IconFactory.getInstance().getIcon(IconFactory.IconID.REGION_OF_INTEREST);
+
+        roiToggleButton = new JideToggleButton(regionOfInterestIcon);
+        //roiToggleButton.setButtonStyle(JideButton.TOOLBOX_STYLE);
+        //roiToggleButton.setBorder(toolButtonBorder);
+        roiToggleButton.setAlignmentX(RIGHT_ALIGNMENT);
+        roiToggleButton.setToolTipText("Define a region of interest.");
+        roiToggleButton.setMaximumSize(new java.awt.Dimension(32, 32));
+        roiToggleButton.setMinimumSize(new java.awt.Dimension(32, 32));
+        roiToggleButton.setPreferredSize(new java.awt.Dimension(32, 32));
+        roiToggleButton.addActionListener(this::roiToggleButtonActionPerformed);
+        toolPanel.add(roiToggleButton, JideBoxLayout.FIX);
+
+
+        squishTracksButton = new JideToggleButton();
+        squishTracksButton.setAlignmentX(RIGHT_ALIGNMENT);
+        // Collapse-all icon while off, expand-all while on (i.e. the action a click will perform)
+        javax.swing.ImageIcon squishOffIcon = new javax.swing.ImageIcon(getClass().getResource(
+                darkMode ? "/images/collapseall.invert.gif" : "/images/collapseall.gif"));
+        javax.swing.ImageIcon squishOnIcon = new javax.swing.ImageIcon(getClass().getResource(
+                darkMode ? "/images/expandall.invert.gif" : "/images/expandall.gif"));
+        squishTracksButton.setIcon(squishOffIcon);
+        squishTracksButton.setSelectedIcon(squishOnIcon);
+        // Without these, hovering while selected falls back to the "off" icon instead of the selected one
+        squishTracksButton.setRolloverIcon(squishOffIcon);
+        squishTracksButton.setRolloverSelectedIcon(squishOnIcon);
+        squishTracksButton.setMaximumSize(new java.awt.Dimension(32, 32));
+        squishTracksButton.setMinimumSize(new java.awt.Dimension(32, 32));
+        squishTracksButton.setPreferredSize(new java.awt.Dimension(32, 32));
+        updateSquishTracksTooltip();
+        squishTracksButton.addActionListener(evt -> {
+            IGV.getInstance().setSquishTracks(squishTracksButton.isSelected());
+            updateSquishTracksTooltip();
+        });
+        toolPanel.add(squishTracksButton, JideBoxLayout.FIX);
+
+        final Icon noTooltipIcon = IconFactory.getInstance().getIcon(IconFactory.IconID.NO_TOOLTIP);
+        detailsBehaviorButton = new JideButton(noTooltipIcon);
+
+        //detailsBehaviorButton.setButtonStyle(JideButton.TOOLBOX_STYLE);
+        //detailsBehaviorButton.setBorder(toolButtonBorder);
+        detailsBehaviorButton.setAlignmentX(RIGHT_ALIGNMENT);
+        detailsBehaviorButton.setToolTipText(MODIFY_DETAILS_TOOLTIP);
+        detailsBehaviorButton.setMaximumSize(new java.awt.Dimension(32, 32));
+        detailsBehaviorButton.setMinimumSize(new java.awt.Dimension(32, 32));
+        detailsBehaviorButton.setPreferredSize(new java.awt.Dimension(32, 32));
+        toolPanel.add(detailsBehaviorButton, JideBoxLayout.FIX);
+
+        rulerLineButton = new JideToggleButton();
+        rulerLineButton.setIcon(new javax.swing.ImageIcon(getClass().getResource("/images/vertical-line.gif")));
+        rulerLineButton.setAlignmentX(RIGHT_ALIGNMENT);
+        rulerLineButton.setToolTipText("Enable ruler line in data panels");
+        rulerLineButton.setMaximumSize(new java.awt.Dimension(32, 32));
+        rulerLineButton.setMinimumSize(new java.awt.Dimension(32, 32));
+        rulerLineButton.setPreferredSize(new java.awt.Dimension(32, 32));
+        rulerLineButton.addActionListener(evt -> {
+            IGV.getInstance().setRulerEnabled(rulerLineButton.isSelected());
+            IGV.getInstance().repaint();
+        });
+        toolPanel.add(rulerLineButton, JideBoxLayout.FIX);
+
+        this.add(toolPanel);
+
+        this.add(Box.createHorizontalGlue(), JideBoxLayout.VARY);
+
+        zoomControl = new ZoomSliderPanel();
+
+        // zoomControl.setAlignmentX(RIGHT_ALIGNMENT);
+        Dimension dimSize = new Dimension(170, 30);
+        zoomControl.setPreferredSize(dimSize);
+        zoomControl.setMinimumSize(dimSize);
+        zoomControl.setMaximumSize(dimSize);
+        zoomControl.setToolTipText("Click + to zoom in,  - to zoom out");
+        zoomControl.setOpaque(false);
+        this.add(zoomControl, JideBoxLayout.FIX);
+
+        this.add(Box.createHorizontalStrut(20), JideBoxLayout.FIX);
+
+
+    }
+
+}

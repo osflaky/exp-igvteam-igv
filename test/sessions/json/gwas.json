@@ -1,0 +1,51 @@
+{
+  "genome": "hg19",
+  "locus": "All",
+  "hiddenAttributes": [
+    "DATA FILE",
+    "DATA TYPE",
+    "NAME"
+  ],
+  "tracks": [
+    {
+      "format": "refgene",
+      "name": "Refseq All",
+      "id": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/ncbiRefSeq.txt.gz",
+      "type": "annotation",
+      "url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/ncbiRefSeq.txt.gz",
+      "order": 0
+    },
+    {
+      "singleColor": false,
+      "flipAxis": false,
+      "drawBaseline": true,
+      "max": 25,
+      "useChrColors": true,
+      "maxPointSize": 7,
+      "format": "gwas",
+      "primaryColor": "69,101,183",
+      "mid": 5,
+      "type": "gwas",
+      "autoscale": "true",
+      "url": "https://raw.githubusercontent.com/igvteam/igv-data/refs/heads/main/data/test/gwas/gwas_sample.gwas.gz",
+      "minPointSize": 3,
+      "alternatingColors": false,
+      "logScale": false,
+      "min": 5,
+      "name": "gwas_sample.gwas.gz",
+      "id": "https://raw.githubusercontent.com/igvteam/igv-data/refs/heads/main/data/test/gwas/gwas_sample.gwas.gz",
+      "showAxis": true,
+      "order": 0,
+      "height": 200,
+      "secondaryColor": "250,169,10"
+    },
+    {
+      "sequenceTranslationStrandValue": "+",
+      "name": "Reference sequence",
+      "shouldShowTranslation": false,
+      "id": "Reference sequence",
+      "type": "sequence",
+      "order": 1
+    }
+  ]
+}

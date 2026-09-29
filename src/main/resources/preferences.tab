@@ -1,0 +1,432 @@
+#General
+SESSION.RELATIVE_PATH	Use relative paths in session files	boolean	FALSE
+IGV.single.track.pane	Display all tracks at full height in a single panel	boolean	FALSE
+IGV.track.show.attribute.views	Show attribute panel	boolean	FALSE
+SHOW_DEFAULT_TRACK_ATTRIBUTES	Show default track attributes	boolean	FALSE
+SHOW_REGION_BARS	Show region-of-interest boundaries	boolean	FALSE
+SAM.SHOW_INSERTION_MARKERS	Show insertion markers	boolean	TRUE
+ENABLE_GOOGLE_MENU	Enable Google access	boolean	FALSE	Enable loading from Google apis.
+FLANKING_REGION	"Search for feature" padding region in bp, < 0 is interpreted as a percentage.	integer	2000	
+DEFAULT_VISIBILITY_WINDOW	Default visibility window (kilobases), < 0 disables visibility window.	float	-1
+FIT_TO_VIEWPORT_MAX_ROWS	Maximum number of rows rendered when fitting track data to the viewport height.	integer	2000
+
+## Session Autosave
+AUTOSAVE_ON_EXIT	Automatically save session on exit	boolean	TRUE
+AUTOLOAD_LAST_AUTOSAVE	Load last autosaved session on startup	boolean	FALSE
+AUTOSAVE_FREQUENCY	How often, in minutes, to autosave the current session	integer	10
+AUTOSAVES_TO_KEEP	How many timed autosave session files to keep (0 disables timed autosave)	integer	0
+
+##Jump To Next Feature Options (f/b Keys)
+NEXT_FIT_TO_WINDOW	Fit feature to window (with optional padding).	boolean	FALSE
+NEXT_FLANKING_REGION	Padding region in bp, < 0 is interpreted as a percentage.	integer	0
+
+##Appearance
+BACKGROUND_COLOR	Background color	color	250,250,250
+DEFAULT_FONT_FAMILY	Default font family	string	Arial
+DEFAULT_FONT_SIZE	Default font size	integer	10
+SCALE_FONTS	Scale fonts. Useful for some high-resolution screens.  ** REQUIRES RESTART **	boolean	FALSE
+FONT_SCALE_FACTOR	Font scale factor	float	1
+ENABLE_ANTIALIASING	Enable anti-aliasing	boolean	TRUE
+USER_THEME	Select Theme (Requires Restart)	select SYSTEM|FLATLIGHT|FLATDARK|FLATINTELLIJ|FLATINTELLIJDARK|NIMBUS|METAL|CROSS	FLATLIGHT
+
+#Tracks
+IGV.chart.track.height	Default numeric track height (pixels)	integer	40
+IGV.track.height	Default feature track height (pixels)	integer	15
+IGV.interact.track.height	Default interaction track height (pixels)	integer	250
+TRACK.BORDER_WIDTH	Border width (pixels)	integer	2	Height of the border drawn between tracks.  Minimum 1.
+TRACK.BORDER_COLOR	Border color	color	240,240,240
+TRACK_ATTRIBUTE_NAME_KEY	Sample attribute key for track names	string	null
+
+##Numeric Tracks
+CHART.DRAW_TRACK_NAME	Draw track label	boolean	FALSE
+CHART.DRAW_AXIS	Label Y axis	boolean	FALSE
+CHART.SHOW_DATA_RANGE	Show data range	boolean	TRUE
+
+##Feature Tracks
+EXPAND_FEATURE_TRACKS	Expand feature tracks	boolean	FALSE
+
+##Color Scales
+COLOR_SCALE_COPY_NUMBER	Segmented copy number	colorscale	ContinuousColorScale;-0.1;-1.5;0.1;1.5;0,0,255;255,255,255;255,0,0
+COLOR_SCALE_GENE_EXPRESSION	Gene expression	colorscale	ContinuousColorScale;-0.1;-1.5;0.1;1.5;0,0,255;255,255,255;255,0,0
+
+## Color Scales - Dark Theme
+COLOR_SCALE_COPY_NUMBER_DARK	Segmented copy number (dark)	colorscale	ContinuousColorScale;-0.1;-1.5;0.1;1.5;0,0,255;0,0,0;255,0,0
+COLOR_SCALE_GENE_EXPRESSION_DARK	Gene expression (dark)	colorscale	ContinuousColorScale;-0.1;-1.5;0.1;1.5;0,0,255;0,0,0;255,0,0
+
+##Nucleotide Colors
+COLOR.A	A	color	0,150,0
+COLOR.C	C	color	0,0,255
+COLOR.T	T	color	255,0,0
+COLOR.G	G	color	209,113,5
+COLOR.N	n	color	128,128,128
+
+#Variants
+
+##Variant Colors
+HOMREF.COLOR	Homozygous reference	color	200,200,200
+HOMVAR.COLOR	Homozygous variant	color	0,245,255
+HETVAR.COLOR	Heterozygous variant	color	0,0,255
+NOCALL.COLOR	No call	color	230,230,230
+AF_REF.COLOR	Allele frequency - reference	color	0,0,220
+AF_VAR.COLOR	Allele frequency - variant	color	255,0,0
+VARIANT_COLOR_BY_ALLELE_FREQ	Color by allele frequency (uncheck to color by allele fraction)	boolean	TRUE
+VARIANT_ALLELE_FREQUENCY_DISPLAY	Show allele frequency / fraction as	select AUTOMATIC|COLOR_SCALE|BAR	AUTOMATIC	A color scale, or a bar whose height is the frequency (the reference and variant colors above).  Automatic uses the color scale, except for files without genotypes that have allele frequencies.
+
+#Mutations
+info	Settings on this tab apply to TCGA  "maf" and "mut" files.
+
+##Color Options
+COVER_OVERLAY_KEY	Color Mutations	boolean	TRUE
+MUTATION_INDEL_COLOR_KEY	Indel	color	0,200,0
+MUTATION_MISSENSE_COLOR_KEY	Missense	color	170,20,240
+MUTATION_NONSENSE_COLOR_KE	Nonsense	color	50,30,75
+MUTATION_SPLICE_SITE_COLOR_KEY	Splice Site	color	150,0,150
+MUTATION_SYNONYMOUS_COLOR_KEY	Synonymous	color	200,170,200
+MUTATION_TARGETED_REGION_COLOR_KEY	Targeted Region	color	236,155,43
+MUTATION_Truncating_COLOR	Truncating	color	150,0,0
+MUTATION_Non-coding_Transcript_COLOR	Non-coding Transcript	color	0,0,150
+MUTATION_Other_AA_changing_COLOR	Other AA Changing	color	0,150,150
+MUTATION_Other_likely_neutral_COLOR	Other Likely Neutral	color	225,180,225
+MUTATION_UNKNOWN_COLOR_KEY	Unknown	color	0,180,225
+##Coordinate System
+MUT_COORDS	Mut file coordinate convention. 0 = zero based half-open, 1 = one based fully closed.	select 0|1	0
+
+
+#Alignments
+info	Default settings for alignment tracks.  A subset of these properties can be overridden for RNA and 3rd generation data.
+info	See also the RNA and Third Gen tabs.
+
+##Track Display
+ALIGNMENT_TRACK_HEIGHT	Default alignment track height (pixels)	integer	300
+SAM.SHOW_ALIGNMENT_TRACK	Show alignment track	boolean	TRUE
+SAM.SHOW_COV_TRACK	Show coverage track	boolean	TRUE
+SAM.SHOW_JUNCTION_TRACK	Show junction track	boolean	FALSE
+SAM.MAX_VISIBLE_RANGE	Visibility range threshold (kb)	float	30	Range at which alignments become visible
+
+##Downsampling
+SAM.DOWNSAMPLE_READS	Downsample reads	boolean	TRUE
+SAM.SAMPLING_WINDOW	Sampling window size (bases)	integer	50
+SAM.MAX_LEVELS	Number of reads per window	integer	100
+
+##Coverage Track Options
+SAM.ALLELE_THRESHOLD	Coverage allele-fraction threshold	float	0.2
+SAM.ALLELE_USE_QUALITY	Quality weight allele fraction	boolean	TRUE
+
+##Alignment Track Defaults
+
+SAM.COLOR_BY	Color alignments by	select NONE|READ_STRAND|FIRST_OF_PAIR_STRAND|PAIR_ORIENTATION|UNEXPECTED_PAIR|INSERT_SIZE|BASE_MODIFICATION|BASE_MODIFICATION_2COLOR|SAMPLE|READ_GROUP|LIBRARY|MOVIE|ZMW|SPLIT|BISULFITE|NOMESEQ|TAG|MAPPED_SIZE|LINK_STRAND|YC_TAG|READ_ORDER	UNEXPECTED_PAIR
+SAM.COLOR_BY_TAG	Color by TAG	string
+---
+SAM.SORT_OPTION	Sort alignments by	select NONE|STRAND|SAMPLE|READ_GROUP|LIBRARY|FIRST_OF_PAIR_STRAND|TAG|PAIR_ORIENTATION|MATE_CHROMOSOME|SV_ALIGNMENT|SUPPLEMENTARY|BASE_AT_POS|MOVIE|ZMW|HAPLOTYPE|READ_ORDER|LINKED|PHASE|MAPPING_QUALITY|SELECTED|DUPLICATE
+SAM.SORT_BY_TAG	Sort by TAG	string
+SAM.SORT_ALL	Synchronize sort across all alignment tracks	boolean	TRUE
+SAM.AUTO_SORT	Automatically apply last sort command when changing locus	boolean	FALSE
+---
+SAM.GROUP_OPTION	Group alignments by	select NONE|STRAND|SAMPLE|READ_GROUP|LIBRARY|FIRST_OF_PAIR_STRAND|TAG|PAIR_ORIENTATION|MATE_CHROMOSOME|SV_ALIGNMENT|SUPPLEMENTARY|BASE_AT_POS|MOVIE|ZMW|HAPLOTYPE|READ_ORDER|LINKED|PHASE|MAPPING_QUALITY|SELECTED|DUPLICATE
+SAM.GROUP_BY_TAG	Group by TAG	string
+SAM.GROUP_ALL	Synchronize grouping across all alignment tracks	boolean	FALSE
+---
+SAM.LINK_READS	Link alignments by tag	boolean	FALSE
+SAM.LINK_TAG	Linking tag	string	READNAME
+---
+SAM.QUALITY_THRESHOLD	Mapping quality threshold	int	0	Hide alignments with MQ lower than this value
+SAM.ALIGNMENT_SCORE_THRESHOLD	Alignment score threshold (AS tag)	int	0
+SAM.DISPLAY_MODE	Alignment display mode	string	EXPANDED
+SAM.DISPLAY_PAIRED	Display reads as paired by default	boolean	FALSE
+---
+SAM.FLAG_ZERO_QUALITY	Flag alignments with mapping quality = 0 with transparency and solid outline	boolean	TRUE
+SAM.SHADE_ALIGNMENT_BY	Shade alignments by	select NONE|MAPPING_QUALITY_HIGH|MAPPING_QUALITY_LOW	NONE
+SAM.SHADE_QUALITY_LOW	Mapping quality low shading threshold	int	0	Alignments with MQ <= this value will be considered treated as low for shading purposes
+SAM.SHADE_QUALITY_HIGH	Mapping quality high shading threshold	int	60	Alignments with MQ >= this value will be considered treated as high for shading purposes
+---
+SAM.SHOW_MISMATCHES	Show mismatched bases	boolean	TRUE
+SAM.SHOW_ALL_BASES	Show all bases	boolean	FALSE
+SAM.FILTER_DUPLICATES	Filter duplicate reads	boolean	TRUE
+SAM.FILTER_FAILED_READS	Filter vendor failed reads	boolean	TRUE
+SAM.FILTER_SECONDARY_ALIGNMENTS	Filter secondary alignments	boolean	FALSE
+SAM.FILTER_SUPPLEMENTARY_ALIGNMENTS	Filter supplementary alignments	boolean	FALSE
+SAM.FLAG_UNMAPPED_PAIR	Flag unmapped pairs	boolean	FALSE
+SAM.SHOW_CENTER_LINE	Show center line	boolean	TRUE
+SAM.SHOW_SOFT_CLIPPED	Show soft-clipped bases	boolean	FALSE
+---
+SAM.SHADE_BASE_QUALITY	Shade mismatched bases by quality.	boolean	TRUE
+SAM.BASE_QUALITY_MIN	Maximum transparency at base quality:	integer	5
+SAM.BASE_QUALITY_MAX	No transparency above base quality:	integer	20
+---
+SAM.FLAG_LARGE_INDELS	Label indels >  threshold	boolean	TRUE
+SAM.LARGE_INSERTIONS_THRESOLD	Label threshold (bases)	integer	1
+---
+SAM.HIDE_SMALL_INDEL	Hide indels <  indel size threshold	boolean	FALSE
+SAM.SMALL_INDEL_BP_THRESHOLD	Indel size threshold (bases)	integer	0
+---
+SAM.FLAG_CLIPPING	Flag clipping > threshold	boolean	FALSE
+SAM.CLIPPING_THRESHOLD	Flag clipping threshold (bases)	integer	0
+SAM.SHOW_CONNECTED_CHR_NAME	Show connected chromosome name	boolean	TRUE
+---
+SAM.QUICK_CONSENSUS_MODE	Quick consensus mode	boolean	FALSE
+
+---
+SAM.HIDDEN_TAGS	Hide tags in popup text (comma delimited list)	string	SA,MD,XA,RG,MA,MM,ML,Ma,Mm,Ml
+---
+SAM.LINK_BY_TAGS	Tags to be used for linking alignments (comma delimited list)	string	 
+---
+SAM.MAX_SOFT_CLIP	Soft clip reference extension maximum	integer	1000	Reference sequence is extended up to this amount to show soft clips overhanging reference edge.
+---
+SAM.FILTER_ALIGNMENTS	Filter alignments by read group	boolean	FALSE
+SAM.FILTER_URL	URL or path to read group filter file	string	null
+
+##Insert Size Options
+SAM.COMPUTE_ISIZES	Compute insert size thresholds	boolean	TRUE
+SAM.MIN_ISIZE_MIN_PERCENTILE	Minimum (percentile)	float	0.5
+SAM.ISIZE_MAX_PERCENTILE	Maximum (percentile)	float	99.5
+SAM.MIN_INSERT_SIZE_THRESHOLD	Default minimum (bp)	float	50
+SAM.INSERT_SIZE_THRESHOLD	Default maximum (bp)	float	1000
+SAM.INDEL_QUAL_COLORING	INDEL coloring enabled (ultima)	boolean	TRUE
+SAM.INDEL_QUAL_USES_MIN	INDEL coloring uses min quality (ultima)	boolean	FALSE
+
+##SBX Options
+SAM.INDEL_QUAL_SBX	INDEL coloring uses grey (SBX)	boolean	FALSE
+SAM.TAIL_QUAL_SBX	Color simplex tails (SBX)	boolean	FALSE
+SAM.HIDE_TAIL_SBX	Hide simplex tails (SBX)	boolean	FALSE
+
+#RNA	RNA
+info Settings below override defaults for RNA alignments.
+
+##Track Display Options
+SAM.SHOW_ALIGNMENT_TRACK	Show alignment track	boolean	TRUE
+SAM.SHOW_COV_TRACK	Show coverage track	boolean	TRUE
+SAM.SHOW_JUNCTION_TRACK	Show junction track	boolean	TRUE
+SAM.MAX_VISIBLE_RANGE	Visibility range threshold (kb)	float	300	Range at which alignments become visibile
+
+##Splice Junction Track
+SAM.SHOW_JUNCTION_FLANKINGREGIONS	Show flanking regions	boolean	TRUE
+SAM.JUNCTION_MIN_FLANKING_WIDTH	Minimum flanking width	integer	0
+SAM.JUNCTION_MIN_COVERAGE	Minimum junction coverage	integer	1
+
+##Insert Size Options
+SAM.COMPUTE_ISIZES	Compute insert size thresholds	boolean	FALSE
+SAM.MIN_ISIZE_MIN_PERCENTILE	Minimum (percentile)	float	0.5
+SAM.ISIZE_MAX_PERCENTILE	Maximum (percentile)	float	99.5
+SAM.MIN_INSERT_SIZE_THRESHOLD	Default minimum (bp)	float	50
+SAM.INSERT_SIZE_THRESHOLD	Default maximum (bp)	float	100000
+
+
+#Third Gen	THIRD_GEN
+info Settings below override defaults for 3rd-gen (PacBio, Oxford Nanopore, ...) alignments.
+
+SAM.MAX_VISIBLE_RANGE	Visibility range threshold (kb)	float	1000	Range at which alignments become visibile
+SAM.QUICK_CONSENSUS_MODE	Quick consensus mode	boolean	FALSE
+
+##Downsampling
+SAM.DOWNSAMPLE_READS	Downsample reads	boolean	FALSE
+SAM.SAMPLING_WINDOW	Sampling window size (bases)	integer	50
+SAM.MAX_LEVELS	Number of reads per window	integer	100
+
+##Indels
+SAM.FLAG_LARGE_INDELS	Label indels > label threshold	boolean	TRUE
+SAM.LARGE_INSERTIONS_THRESOLD	Label threshold (bases)	integer	1
+---
+SAM.HIDE_SMALL_INDEL	Hide indels < show indel threshold	boolean	FALSE
+SAM.SMALL_INDEL_BP_THRESHOLD	Show indel threshold (bases)	integer	2
+
+##Clipping
+SAM.FLAG_CLIPPING	Flag clipping > flag clipping threshold	boolean	TRUE
+SAM.CLIPPING_THRESHOLD	Flag clipping threshold (bases)	integer	20
+
+##Linking
+SAM.LINK_READS	Link alignments by tag	boolean	FALSE
+SAM.LINK_TAG	Linking tag	string	READNAME
+
+##SMRT Kinetics
+SMRT_KINETICS.SHOW_OPTIONS	Show visibility options for SMRT kinetics data	boolean	FALSE
+
+#Base Mods
+
+BASEMOD.THRESHOLD	Base modification likelihood threshold (0-1)	float	0
+BASEMOD.GROUP_BY_STRAND	Group alignments by strand	boolean	FALSE
+BASEMOD.DISTINGUISH_STRANDS	Distinguish modified bases by DNA strand (Watson-Crick).	boolean	FALSE
+BASEMOD.SKIPPED_BASES	Assume skipped bases have low probability of modification.	boolean	FALSE
+
+## Modified base colors
+BASEMOD.M_COLOR	5mC	color	255,0,0
+BASEMOD.H_COLOR	5hmC	color	255,0,255
+BASEMOD.F_COLOR	5fC	color	246,200,95
+BASEMOD.C_COLOR	5caC	color	157,216,102
+BASEMOD.G_COLOR	5hmU	color	255,160,86
+BASEMOD.E_COLOR	5fU	color	141,221,208
+BASEMOD.B_COLOR	5caU	color	0,100,47
+BASEMOD.A_COLOR	6mA	color	51,0,111
+BASEMOD.O_COLOR	8oxoG	color	111,78,129
+BASEMOD.17082_COLOR	pseU	color	51,153,255
+BASEMOD.17596_COLOR	inosine	color	102,153,0
+BASEMOD.21839_COLOR	4mC	color	153,0,153
+BASEMOD.OTHER_COLOR	Other	color	132,178,158
+
+## Unomdified base colors (2-color option)
+BASEMOD.NONE_A_COLOR	A	color	0,0,255
+BASEMOD.NONE_C_COLOR	C	color	0,0,255
+BASEMOD.NONE_T_COLOR	T	color	0,0,255
+BASEMOD.NONE_G_COLOR	G	color	0,0,255
+BASEMOD.NONE_N_COLOR	G	color	0,0,255
+
+## Molecular Annotation colors
+MA.NUCLEOSOME_COLOR	Nucleosome	color	180,170,150
+MA.MSP_COLOR	MSP (methylation sensitive patch)	color	147,112,219
+MA.FIRE_COLOR	FIRE (opacity increases with FIRE quality)	color	139,0,0
+
+##Validation
+BASEMOD.VALIDATE_BASE_COUNT	Validate base count required by MM tag vs actual base count in read sequence	boolean	TRUE
+
+##Context
+BASEMOD.CYTOSINE_CONTEXT	Cytosine context	string
+
+#Proxy
+PROXY.DISABLE_CHECK	Disable check for system proxy	boolean	FALSE
+PROXY.USE	Use proxy	boolean	FALSE
+PROXY.HOST	Proxy host	string	null
+PROXY.PORT	Proxy port	integer	0
+PROXY.WHITELIST	Whitelist	string	null
+PROXY.TYPE	Proxy type	select HTTP|SOCKS|DIRECT	HTTP
+---
+PROXY.AUTHENTICATE	Authentication required	boolean	FALSE
+PROXY.USERNAME	Username	string	null
+PROXY.PW	Password	string	null
+
+#Advanced
+---
+PORT_ENABLED	Enable port	boolean	TRUE
+PORT_NUMBER	Port number	integer	60151
+---
+IGV.genome.sequence.dir	Genome server URL	string	https://igv.org/genomes/genomes3.tsv
+
+MASTER_RESOURCE_FILE_KEY	Data registry URL	string	null
+---
+PROVISIONING.URL	OAuth provisioning URL	string	null
+---
+BLAT_URL	BLAT URL	string	https://genome.ucsc.edu/cgi-bin/hgBlat
+---
+AWS_ENDPOINT_URL	AWS endpoint URL	string	null
+AWS_S3_BUCKETS	AWS S3 buckets list (comma-separated)	string	null
+
+## Tooltip
+TOOLTIP.INITIAL_DELAY	Tooltip inital delay (ms)	integer	50
+TOOLTIP.RESHOW_DELAY	Tooltip reshow delay (ms)	integer	50
+TOOLTIP.DISMISS_DELAY	Tooltip dismiss delay (ms)	integer	60000
+
+
+#Hidden
+
+UCSC_HOST	hgdownload.soe.ucsc.edu
+UCSC_BACKUP_HOST	genome-browser.s3.us-east-1.amazonaws.com
+UCSC_CONNECT_TIMEOUT	1000
+
+SHOW_SELECTION_PANEL	FALSE
+
+ENCODE_FILELIST_URL	https://raw.githubusercontent.com/igvteam/igv-data/refs/heads/main/data/encode/
+FOUR_DN_FILELIST_URL	https://raw.githubusercontent.com/igvteam/igv-data/refs/heads/main/data/4dn/
+
+PROVISIONING_URL_DEFAULT	https://igv.org/services/desktop_google
+SAM.SHOW_JUNCTION_FLANKINGREGIONS	FALSE
+SAM.JUNCTION_MIN_FLANKING_WIDTH	0
+SAM.JUNCTION_MIN_COVERAGE	1
+SMRT_KINETICS.SHOW_OPTIONS	FALSE
+
+SCORE_VARIANTS	FALSE
+
+SAM.AUTOSORT	FALSE
+SAM.SHADE_CENTER	TRUE
+SAM.SHOW_REF_SEQ	FALSE
+
+SAM.BISULFITE_CONTEXT	CG
+SAM.NOMESEQ_ENABLED	FALSE
+SAM.COUNT_DELETED_BASES_COVERED	FALSE
+SAM.SORT_OPTION	NUCLEOTIDE
+SAM.COLOR_BY	UNEXPECTED_PAIR
+SAM.SHOW_GROUP_SEPARATOR	TRUE
+SAM.REDUCED_MEMORY_MODE	FALSE
+
+SAM.GROUP_ALL	FALSE
+SAM.INVERT_SORT	FALSE
+
+
+SEARCH_ZOOM	TRUE
+SAVE_GOOGLE_CREDENTIALS	TRUE
+MAX_SEQUENCE_RESOLUTION	2
+DEFAULT_FONT_ATTRIBUTE	0
+OVERLAY_TRACKS_KEY	TRUE
+SHOW_ORPHANED_MUTATIONS	TRUE
+
+OVERLAY_MUTATIONS_WHOLE_GENOME	TRUE
+
+
+PROBE_MAPPING_KEY	FALSE
+PROBE_MAPPING_FILE	null
+USE_PROBE_MAPPING_FILE	FALSE
+CHART.SHOW_ALL_HEATMAP	FALSE
+CHART.COLOR_TRACK_NAME	TRUE
+IGV.track.show.attribute.views	TRUE
+
+BYPASS_FILE_AUTO_DISCOVERY	FALSE
+SHOW_GENOME_SERVER_WARNING	TRUE
+
+OVERLAY_ATTRIBUTE_KEY	LINKING_ID
+DEFAULT_GENOME_KEY	hg19
+IGV.track.height	15
+FLANKING_REGION	2000
+SHOW_SEQUENCE_TRANSLATION	FALSE
+SEQUENCE_TRANSLATION_STRAND	POSITIVE
+AUTO_UPDATE_GENOMES	TRUE
+GWAS_TRACK_HEIGHT	200
+GWAS_DESCRIPTION_CACHE_SIZE	10000
+GWAS_MIN_POINT_SIZE	3
+GWAS_MAX_POINT_SIZE	7
+GWAS_USE_CHR_COLORS	TRUE
+GWAS_SINGLE_COLOR	FALSE
+GWAS_ALTERNATING_COLORS	FALSE
+GWAS_PRIMARY_COLOR	69,101,183
+GWAS_SECONDARY_COLOR	250,169,10
+GWAS_SHOW_AXIS	TRUE
+ENABLE_ANTIALIASING	TRUE
+NAME_PANEL_WIDTH	160
+GENOME_SPACE_ENABLE	TRUE
+GENOME_SPACE_DM_SERVER	https://dm.genomespace.org/datamanager/v1.0/
+GENOME_SPACE_ATM_SERVER	https://atm.genomespace.org/atm/v1.0/
+GENOME_SPACE_IDENTITY_SERVER	https://identitydev.genomespace.org:8444/identityServer/basic
+DB_ENABLED	FALSE
+DB_HOST
+DB_NAME
+DB_PORT	-1
+CBIO_MUTATION_THRESHOLD	1
+CBIO_AMPLIFICATION_THRESHOLD	0.9
+CBIO_DELETION_THRESHOLD	0.9
+CBIO_EXPRESSION_UP_THRESHOLD	1
+CBIO_EXPRESSION_DOWN_THRESHOLD	1
+DETAILS_BEHAVIOR	CLICK
+SHOW_SIZE_WARNING	TRUE
+SKIP_VERSION
+
+SASHIMI.SHOW_COVERAGE	TRUE
+GENE_LIST_BED_FORMAT	FALSE
+showLOS	TRUE
+DEBUG.PROXY	FALSE
+
+MUTATION_INDEL_COLOR_KEY	Indel	color	0,200,0
+MUTATION_MISSENSE_COLOR_KEY	Missense	color	170,20,240
+MUTATION_NONSENSE_COLOR_KE	Nonsense	color	50,30,75
+MUTATION_SPLICE_SITE_COLOR_KEY	Splice Site	color	150,0,150
+MUTATION_SYNONYMOUS_COLOR_KEY	Synonymous	color	200,170,200
+MUTATION_TARGETED_REGION_COLOR_KEY	Targeted Region	color	236,155,43
+MUTATION_Truncating_COLOR	Truncating	color	150,0,0
+MUTATION_Non-coding_Transcript_COLOR	Non-coding Transcript	color	0,0,150
+MUTATION_Other_AA_changing_COLOR	Other AA Changing	color	0,150,150
+MUTATION_Other_likely_neutral_COLO	Other Likely NeutralR	color	225,180,225
+MUTATION_UNKNOWN_COLOR_KEY	Unknown	color	0,180,225
+
+OVERLAY_ATTRIBUTE_KEY	Linking ID	string	LINKING_ID
+
+NORMALIZE_COVERAGE	Normalize coverage data (.tdf files only)	boolean	FALSE
+NO_DATA.COLOR	 No data	color	216,216,216
+NO_CALL.COLOR	 No call	color	150,150,150
+
+AUXILLARY_HUBS_URL	Hub list URL	string	https://raw.githubusercontent.com/igvteam/igv-genomes/refs/heads/main/hubs/hubs.txt
+IGV.backup.genome.sequence.dir	Backup genome server URL	string	https://raw.githubusercontent.com/igvteam/igv-genomes/refs/heads/main/genomes.txt

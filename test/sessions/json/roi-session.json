@@ -1,0 +1,43 @@
+{
+  "genome": "hg19",
+  "locus": "chr1:1-249250621",
+  "roi": [{"features": [
+    {
+      "start": 17320131,
+      "end": 36830163,
+      "chr": "chr1"
+    },
+    {
+      "start": 110689572,
+      "description": "Second region",
+      "end": 112481310,
+      "chr": "chr1"
+    },
+    {
+      "start": 212022293,
+      "description": "Third region",
+      "end": 215605768,
+      "chr": "chr1"
+    }
+  ]}],
+  "tracks": [
+    {
+      "sequenceTranslationStrandValue": "+",
+      "name": "Reference sequence",
+      "shouldShowTranslation": false,
+      "id": "Reference sequence",
+      "type": "sequence",
+      "order": -9007199254740991,
+      "height": "0"
+    },
+    {
+      "format": "refgene",
+      "name": "Refseq All",
+      "id": "refseqAll",
+      "type": "annotation",
+      "url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/ncbiRefSeq.txt.gz",
+      "order": 100000,
+      "height": "70"
+    }
+  ]
+}

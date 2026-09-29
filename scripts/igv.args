@@ -1,0 +1,2 @@
+# Disable a JAXB optimization that causes illegal access exceptions on Java 11
+-Dcom.sun.xml.bind.v2.bytecode.ClassTailor.noOptimize

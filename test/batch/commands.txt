@@ -1,0 +1,38 @@
+# Test a variety of commands, not comprehensive
+snapshotDirectory $SCRIPT_DIR/snapshots
+version
+new
+genome hg38_1kg
+load https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/illumina_platinum_pedigree/data/CEU/NA12877/alignment/NA12877.alt_bwamem_GRCh38DH.20150706.CEU.illumina_platinum_ped.cram
+load https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/illumina_platinum_pedigree/data/CEU/NA12878/alignment/NA12878.alt_bwamem_GRCh38DH.20150706.CEU.illumina_platinum_ped.cram
+snapshot loadBams.png
+goto myc
+snapshot myc.png
+collapse NA12878.alt_bwamem_GRCh38DH.20150706.CEU.illumina_platinum_ped.cram
+snapshot collapsed_NA12898.png
+squish NA12878.alt_bwamem_GRCh38DH.20150706.CEU.illumina_platinum_ped.cram
+snapshot squish_NA12878.png
+expand NA12878.alt_bwamem_GRCh38DH.20150706.CEU.illumina_platinum_ped.cram
+snapshot expand.png
+viewAsPairs true NA12878.alt_bwamem_GRCh38DH.20150706.CEU.illumina_platinum_ped.cram
+snapshot viewAsPairs.png
+viewAsPairs false NA12878.alt_bwamem_GRCh38DH.20150706.CEU.illumina_platinum_ped.cram
+snapshot viewAsPairsOff.png
+squish
+group STRAND
+snapshot groupByStrang.png
+group NONE
+snapshot ungroup.png
+expand
+goto chr17:7,579,801
+sort BASE chr17:7,579,801
+snapshot sortByBase.png
+setSequenceStrand -
+snapshot minusStrang.png
+setSequenceShowTranslation true
+snapshot showTranslation.png
+setTrackHeight 30 NA12878.alt_bwamem_GRCh38DH.20150706.CEU.illumina_platinum_ped.cram
+setLogScale true NA12878.alt_bwamem_GRCh38DH.20150706.CEU.illumina_platinum_ped.cram%20Coverage
+setDataRange 0,1000 NA12878.alt_bwamem_GRCh38DH.20150706.CEU.illumina_platinum_ped.cram%20Coverage
+setColor 0,0,100 NA12878.alt_bwamem_GRCh38DH.20150706.CEU.illumina_platinum_ped.cram%20Coverage
+snapshot blueCoverage.png

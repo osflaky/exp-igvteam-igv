@@ -1,0 +1,197 @@
+package org.igv.seg;
+
+import org.igv.Globals;
+import org.igv.feature.FeatureUtils;
+import org.igv.feature.LocusScore;
+import org.igv.prefs.Constants;
+import org.igv.prefs.PreferencesManager;
+import org.igv.renderer.BarChartRenderer;
+import org.igv.renderer.DataRange;
+import org.igv.renderer.Renderer;
+import org.igv.track.*;
+import org.igv.ui.panel.IGVPopupMenu;
+import org.igv.ui.panel.ReferenceFrame;
+import org.igv.ui.util.MessageUtils;
+import org.igv.util.ResourceLocator;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.util.*;
+import java.util.List;
+
+/**
+ * @author jrobinso
+ * @date Oct 13, 2010
+ */
+
+
+public class CNFreqTrack extends AbstractTrack {
+
+
+    FreqData data;
+    BarChartRenderer renderer;
+
+    float ampThreshold;
+    float delThreshold;
+
+    public CNFreqTrack() {
+    }
+    public CNFreqTrack(ResourceLocator rl, String id, String name, FreqData fd) {
+        super(rl, id, name);
+        data = fd;
+        this.ampThreshold = PreferencesManager.getPreferences().getAsFloat(Constants.CN_FREQ_AMP_THRESHOLD);
+        this.delThreshold = PreferencesManager.getPreferences().getAsFloat(Constants.CN_FREQ_DEL_THRESHOLD);
+
+        float nSamples = data.getNumberOfSamples();
+        this.setDataRange(new DataRange(-nSamples, 0, nSamples));
+        this.color = Color.red;
+        this.altColor = Globals.isDarkMode() ? Globals.DARK_MODE_BLUE : Color.blue;
+
+        renderer = new BarChartRenderer();
+        this.setHeight(50);
+    }
+
+    @Override
+    public TrackType getType() {
+        return TrackType.cnfreq;
+    }
+
+    @Override
+    public int getContentHeight() {
+        return this.height;
+    }
+
+
+    @Override
+    public boolean isReadyToPaint(ReferenceFrame frame) {
+        return true;  // Track is initialized with all data
+    }
+
+    @Override
+    public void load(ReferenceFrame frame) {
+        // Track is initialized with all data
+    }
+
+    public void setAmpThreshold(float ampThreshold) {
+        this.ampThreshold = ampThreshold;
+    }
+
+    public void setDelThreshold(float delThreshold) {
+        this.delThreshold = delThreshold;
+    }
+
+
+    public void render(RenderContext context) {
+
+        // TODO -- generalize.  This track doesn't scroll, we don't need to account for visibleRect or clipBounds
+        Rectangle trackRect = context.getTrackRectangle();
+
+        data.compute(ampThreshold, delThreshold);
+        renderer.render(data.getDelCounts(context.getChr()), context, trackRect, this);
+        renderer.render(data.getAmpCounts(context.getChr()), context, trackRect, this);
+        renderer.renderGuides(this, context, trackRect);
+    }
+
+
+    public String getValueStringAt(String chr, double position, int mouseX, int mouseY, ReferenceFrame frame) {
+
+        List<LocusScore> ampScores = data.getAmpCounts(chr);
+        List<LocusScore> delScores = data.getDelCounts(chr);
+        StringBuffer buf = new StringBuffer();
+        int startIdx = Math.max(0, FeatureUtils.getIndexBefore(position, ampScores));
+        for (int i = startIdx; i < ampScores.size(); i++) {
+            LocusScore ampScore = ampScores.get(i);
+            if (position >= ampScore.getStart() && position <= ampScore.getEnd()) {
+
+                buf.append("# of samples with log2(cn/2) &gt; &nbsp; " + ampThreshold + ": ");
+                buf.append(ampScore.getValueString(position, mouseX, null));
+                buf.append("<br># of samples with log2(cn/2) &lt;  " + delThreshold + ":  ");
+                buf.append(delScores.get(i).getValueString(position, mouseX, null));
+            }
+        }
+        return buf.length() == 0 ? null : buf.toString();
+    }
+
+    public Renderer getRenderer() {
+        return renderer;
+    }
+
+    public boolean isLogNormalized() {
+        return false;
+    }
+
+
+    public float getRegionScore(String chr, int start, int end, int zoom, RegionScoreType type, String frameName) {
+        return Float.MAX_VALUE;  //To change body of implemented methods use File | Settings | File Templates.
+    }
+
+    @Override
+    public List<Component> getPopupMenuItems(TrackClickEvent te) {
+
+        List<Component> items = new ArrayList<>();
+
+        final JMenuItem ampThresholdItem = new JMenuItem("Set amplification threshold (" + ampThreshold + ")");
+        ampThresholdItem.addActionListener(e -> {
+            String t = MessageUtils.showInputDialog("Amplification threshold  (log2(cn)/2)", String.valueOf(ampThreshold));
+            if (t != null) {
+                try {
+                    float threshold = Float.parseFloat(t);
+                    setAmpThreshold(threshold);
+                    repaint();
+                } catch (NumberFormatException e1) {
+                    MessageUtils.showErrorMessage("Amplification threshold must be a number", e1);
+                }
+            }
+        });
+        items.add(ampThresholdItem);
+
+        final JMenuItem delThresholdItem = new JMenuItem("Set deletion threshold (" + delThreshold + ")");
+        delThresholdItem.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                String t = MessageUtils.showInputDialog("Deletion threshold  (log2(cn)/2)", String.valueOf(delThreshold));
+                try {
+                    float threshold = Float.parseFloat(t);
+                    setDelThreshold(threshold);
+                    repaint();
+                } catch (NumberFormatException e1) {
+                    MessageUtils.showErrorMessage("Deletion threshold must be a number", e1);
+                }
+            }
+        });
+
+        items.add(delThresholdItem);
+
+        items.add(new JPopupMenu.Separator());
+
+        return items;
+    }
+
+    @Override
+    public void unmarshalXML(Element element, Integer version) {
+
+        super.unmarshalXML(element, version);
+
+        this.ampThreshold = Float.parseFloat(element.getAttribute("ampThreshold"));
+        this.delThreshold = Float.parseFloat(element.getAttribute("delThreshold"));
+
+    }
+
+    @Override
+    public void marshalJSON(org.json.JSONObject jsonObject) {
+        super.marshalJSON(jsonObject);
+        jsonObject.put("ampThreshold", ampThreshold);
+        jsonObject.put("delThreshold", delThreshold);
+    }
+
+    @Override
+    public void unmarshalJSON(org.json.JSONObject jsonObject) {
+        super.unmarshalJSON(jsonObject);
+        this.ampThreshold = (float) jsonObject.optDouble("ampThreshold", ampThreshold);
+        this.delThreshold = (float) jsonObject.optDouble("delThreshold", delThreshold);
+    }
+}
