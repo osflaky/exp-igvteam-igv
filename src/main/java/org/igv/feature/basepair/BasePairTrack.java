@@ -1,0 +1,249 @@
+package org.igv.feature.basepair;
+
+import org.igv.logging.*;
+import org.igv.feature.genome.*;
+import org.igv.renderer.*;
+import org.igv.session.Persistable;
+
+import org.igv.track.AbstractTrack;
+import org.igv.track.RenderContext;
+import org.igv.track.TrackClickEvent;
+import org.igv.track.TrackMenuUtils;
+import org.igv.track.TrackType;
+import org.igv.ui.color.ColorUtilities;
+import org.igv.ui.panel.ReferenceFrame;
+import org.igv.util.ResourceLocator;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+
+import java.awt.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+/**
+ * Show base-pairing arcs
+ *
+ * @author sbusan
+ */
+
+public class BasePairTrack extends AbstractTrack {
+
+    private static Logger log = LogManager.getLogger(BasePairTrack.class);
+
+    private BasePairRenderer basePairRenderer = new BasePairRenderer();
+    private BasePairData basePairData = new BasePairData();
+    Genome genome;
+
+    public enum ArcDirection {
+        UP, DOWN
+    }
+
+    private RenderOptions renderOptions = new RenderOptions();
+
+    public BasePairTrack(ResourceLocator locator, String id, String name, Genome genome) {
+        super(locator, id, name);
+        BasePairFileParser.loadData(locator, genome,
+                basePairData, renderOptions);
+        this.genome = genome;
+        this.setHeight(300);
+    }
+
+    public BasePairTrack() {
+        this.genome = GenomeManager.getInstance().getCurrentGenome();
+    }
+
+    @Override
+    public TrackType getType() {
+        return TrackType.arc;
+    }
+
+    @Override
+    public List<Component> getPopupMenuItems(TrackClickEvent te) {
+        return TrackMenuUtils.getBasePairMenuItems(Collections.singleton(this));
+    }
+
+    @Override
+    public int getContentHeight() {
+        return this.height;
+    }
+
+    @Override
+    public boolean isReadyToPaint(ReferenceFrame frame) {
+        return basePairData != null;
+    }
+
+    @Override
+    public void load(ReferenceFrame frame) {
+        BasePairFileParser.loadData(this.getResourceLocator(),
+                genome, basePairData, renderOptions);
+    }
+
+    public void render(RenderContext context) {
+
+            basePairRenderer.draw(basePairData, context, renderOptions);
+            context.clearGraphicsCache();
+
+    }
+
+
+    private void setRenderOptions(BasePairTrack.RenderOptions renderOptions) {
+        this.renderOptions = renderOptions;
+    }
+
+    public BasePairTrack.RenderOptions getRenderOptions() {
+        return this.renderOptions;
+    }
+
+    public static class RenderOptions  {
+
+        public static final String NAME = "BPRenderOptions";
+
+        private ArcDirection arcDirection;
+
+        private List<String> colors;
+
+        private List<String> colorLabels; // menu legend labels for each color
+
+        public RenderOptions() {
+            // TODO: load some options from global PreferenceManager like AlignmentTrack does?
+            arcDirection = ArcDirection.DOWN;
+            colors = new ArrayList();
+            colorLabels = new ArrayList();
+        }
+
+        public void changeColor(Color currentColor, String currentLabel, Color newColor) {
+            String currentColorString = ColorUtilities.colorToString(currentColor);
+            String newColorString = ColorUtilities.colorToString(newColor);
+            for (int i=0; i<getColors().size(); ++i) {
+                String colorString = getColors().get(i);
+                String label = getColorLabels().get(i);
+                if (!currentColorString.equals(colorString) || !currentLabel.equals(label)) {
+                    continue;
+                }
+                setColor(i, newColorString);
+            }
+        }
+
+        public ArcDirection getArcDirection() {
+            return arcDirection;
+        }
+
+        public void setArcDirection(ArcDirection d) {
+            this.arcDirection = d;
+        }
+
+        public List<String> getColors() {
+            return this.colors;
+        }
+
+        public void setColors(List<String> l) {
+            this.colors = l;
+        }
+
+        public List<String> getColorLabels() {
+            return this.colorLabels;
+        }
+
+        public void setColorLabels(List<String> l) {
+            this.colorLabels = l;
+        }
+
+        public String getColor(int i) {
+            return this.colors.get(i);
+        }
+
+        public void setColor(int i, String s) {
+            this.colors.set(i, s);
+        }
+
+        public String getColorLabel(int i) {
+            return this.colorLabels.get(i);
+        }
+
+        public void setColorLabel(int i, String s) {
+            this.colorLabels.set(i, s);
+        }
+
+
+        public void marshalXML(Document document, Element element) {
+
+            if(arcDirection != ArcDirection.DOWN) {
+                element.setAttribute("arcDirection", arcDirection.toString());
+            }
+            if(colors.size() > 0) {
+                for(String c : colors) {
+                    Element colorElement = document.createElement("colors");
+                    colorElement.setTextContent(c);
+                    element.appendChild(colorElement);
+                }
+            }
+        }
+
+
+        public void marshalJSON(org.json.JSONObject json) {
+            json.put("arcDirection", arcDirection.toString());
+            json.put("colors", colors);
+        }
+
+
+        public void unmarshalJSON(org.json.JSONObject json) {
+            if(json.has("arcDirection")) {
+                this.arcDirection = ArcDirection.valueOf(json.getString("arcDirection"));
+            }
+            if(json.has("colors")) {
+                this.colors = new ArrayList<>();
+                org.json.JSONArray colorArray = json.getJSONArray("colors");
+                for(int i=0; i<colorArray.length(); i++) {
+                    this.colors.add(colorArray.getString(i));
+                }
+            }
+        }
+
+
+        public void unmarshalXML(Element element, Integer version) {
+
+            if(element.hasAttribute("arcDirection")) {
+                this.arcDirection = ArcDirection.valueOf(element.getAttribute("arcDirection"));
+            }
+
+            NodeList colorList = element.getElementsByTagName("colors");
+            if(colorList.getLength() > 0) {
+                this.colors = new ArrayList<>();
+                for(int i=0; i<colorList.getLength(); i++) {
+
+                    Node node = colorList.item(i);
+                            this.colors.add(node.getTextContent());
+
+
+                }
+            }
+        }
+    }
+
+    public Renderer getRenderer() {
+        return null;
+    }
+
+    @Override
+    public void unmarshalXML(Element element, Integer version) {
+
+        super.unmarshalXML(element, version);
+
+        NodeList tmp = element.getElementsByTagName("BPRenderOptions");
+        if(tmp.getLength() > 0) {
+            Element renderElement = (Element) tmp.item(0);
+            this.renderOptions.unmarshalXML(renderElement, version);
+        }
+    }
+
+    @Override
+    public void marshalJSON(org.json.JSONObject json) {
+        super.marshalJSON(json);
+        org.json.JSONObject renderOptionsJSON = new org.json.JSONObject();
+        renderOptions.marshalJSON(renderOptionsJSON);
+        json.put("renderOptions", renderOptionsJSON);
+    }
+}

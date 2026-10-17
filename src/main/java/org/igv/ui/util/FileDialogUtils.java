@@ -1,0 +1,223 @@
+package org.igv.ui.util;
+
+import org.igv.logging.*;
+import org.igv.DirectoryManager;
+import org.igv.Globals;
+import org.igv.ui.IGV;
+
+import javax.swing.*;
+import java.awt.*;
+import java.io.File;
+import java.io.FilenameFilter;
+
+/**
+ * @author jrobinso
+ * @date Nov 17, 2010
+ */
+public class FileDialogUtils {
+
+    public static int LOAD = FileDialog.LOAD;
+    public static int SAVE = FileDialog.SAVE;
+
+    private static Logger log = LogManager.getLogger(FileDialogUtils.class);
+
+
+    public static File chooseFile(String title, File initialDirectory, int mode) {
+        return chooseFile(title, initialDirectory, null, mode);
+    }
+
+    public static File chooseFile(String title) {
+        return chooseFile(title, DirectoryManager.getUserDefaultDirectory(), null, FileDialog.LOAD);
+    }
+
+    public static File chooseFile(String title, File initialDirectory, File initialFile, int mode) {
+        return chooseFile(title, initialDirectory, initialFile, null, JFileChooser.FILES_ONLY, mode);
+    }
+
+    private static File chooseFile(String title, File initialDirectory, File initialFile, FilenameFilter filter,
+                                   int directoriesMode, int mode) {
+
+        File file = null;
+        if (initialDirectory == null && initialFile != null) {
+            initialDirectory = initialFile.getParentFile();
+        }
+        // Strip off parent directory
+        if (initialFile != null) initialFile = new File(initialFile.getName());
+
+        if (Globals.FORCE_SWING_DIALOG) {
+            File[] files = chooseSwing(title, initialDirectory, initialFile, filter, directoriesMode, mode);
+            file = (files != null && files.length > 0) ? files[0] : null;
+        } else {
+            file = chooseNative(title, initialDirectory, initialFile, filter, directoriesMode, mode);
+        }
+        return file;
+    }
+
+    public static File chooseDirectory(String title, File initialDirectory) {
+        if (Globals.IS_MAC) {
+            return chooseNative(title, initialDirectory, null, null, JFileChooser.DIRECTORIES_ONLY, LOAD);
+        } else {
+            File[] files = chooseSwing(title, initialDirectory, null, null, JFileChooser.DIRECTORIES_ONLY, LOAD);
+            return (files != null && files.length > 0) ? files[0] : null;
+        }
+    }
+
+
+    public static File[] chooseMultiple(String title, File initialDirectory, final FilenameFilter filter) {
+        
+        File[] files = null;
+        if (Globals.FORCE_SWING_DIALOG) {
+            File[] selectedFiles = chooseSwing(title, initialDirectory, null, filter, JFileChooser.FILES_ONLY, LOAD, true);
+            files = selectedFiles;
+        } else {
+            FileDialog fd = getNativeChooser(title, initialDirectory, null, filter, JFileChooser.FILES_ONLY, LOAD);
+            fd.setVisible(true);
+            files = fd.getFiles();
+        }
+        return files;
+    }
+
+    private static FileDialog getNativeChooser(String title, File initialDirectory, File initialFile, FilenameFilter filter, int directoryMode, int mode) {
+        boolean directories = JFileChooser.DIRECTORIES_ONLY == directoryMode;
+        System.setProperty("apple.awt.fileDialogForDirectories", String.valueOf(directories));
+        Frame parentFrame = getParentFrame();
+        FileDialog fd = new FileDialog(parentFrame, title);
+        if (initialDirectory != null) {
+            fd.setDirectory(initialDirectory.getAbsolutePath());
+        }
+        if (initialFile != null) {
+            fd.setFile(initialFile.getName());
+        }
+        if (filter != null) {
+            fd.setFilenameFilter(filter);
+        }
+        fd.setModal(true);
+        fd.setMode(mode);
+
+        if (mode == LOAD && !directories) {
+            fd.setMultipleMode(true);
+        }
+        return fd;
+    }
+
+
+    private static File chooseNative(String title, File initialDirectory, File initialFile, FilenameFilter filter,
+                                     int directoryMode, int mode) {
+
+        FileDialog fd = getNativeChooser(title, initialDirectory, initialFile, filter, directoryMode, mode);
+        fd.setVisible(true);
+
+        String file = fd.getFile();
+        String directory = fd.getDirectory();
+        if (file != null && directory != null) {
+            // Ugly MAC hack -- bug in their native file dialog
+            if (Globals.IS_MAC && initialFile != null) {
+                file = fixMacExtension(initialFile, file);
+            }
+            return new File(directory, file);
+        } else {
+            return null;
+        }
+    }
+
+    // Overload: default multiSelectionEnabled to false
+    private static File[] chooseSwing(String title, File initialDirectory, File initialFile, final FilenameFilter filter,
+                                 int directoryMode, int mode) {
+        return chooseSwing(title, initialDirectory, initialFile, filter, directoryMode, mode, false);
+    }
+
+    private static File[] chooseSwing(String title, File initialDirectory, File initialFile, final FilenameFilter filter,
+                                    int directoryMode, int mode, boolean multiSelectionEnabled) {
+
+        UIManager.put("FileChooser.readOnly", Boolean.FALSE);
+        JFileChooser fileChooser = getJFileChooser(title, initialDirectory, initialFile, filter, directoryMode);
+        fileChooser.setMultiSelectionEnabled(multiSelectionEnabled);
+        Frame parentFrame = getParentFrame();
+        boolean approve;
+        if (mode == LOAD) {
+            approve = fileChooser.showOpenDialog(parentFrame) == JFileChooser.APPROVE_OPTION;
+        } else {
+
+            approve = fileChooser.showSaveDialog(parentFrame) == JFileChooser.APPROVE_OPTION;
+        }
+
+        if (approve) {
+            if (mode == LOAD && multiSelectionEnabled) {
+                return fileChooser.getSelectedFiles();
+            } else {
+                File selected = fileChooser.getSelectedFile();
+                return (selected != null) ? new File[] { selected } : null;
+            }
+        } else {
+            return null;
+        }
+        
+    }
+
+    /**
+     * @param title
+     * @param initialDirectory
+     * @param initialFile
+     * @param filter
+     * @param directoryMode    either JFileChooser.DIRECTORIES_ONLY, JFileChooser.FILES_ONLY, or
+     *                         JFileChooser.DIRECTORIES_ONLY : JFileChooser.FILES_AND_DIRECTORIES
+     * @return
+     */
+    private static JFileChooser getJFileChooser(String title, File initialDirectory, File initialFile,
+                                                final FilenameFilter filter, int directoryMode) {
+        JFileChooser fileChooser = new JFileChooser();
+        if (initialDirectory != null) {
+            fileChooser.setCurrentDirectory(initialDirectory);
+        }
+        if (initialFile != null) {
+            fileChooser.setSelectedFile(initialFile);
+        }
+        if (filter != null) {
+            fileChooser.setFileFilter(new javax.swing.filechooser.FileFilter() {
+                @Override
+                public boolean accept(File file) {
+                    return filter.accept(file.getParentFile(), file.getName());
+                }
+
+                @Override
+                public String getDescription() {
+                    return "";
+                }
+            });
+        }
+
+        fileChooser.setDialogTitle(title);
+        fileChooser.setFileSelectionMode(directoryMode);
+
+        return fileChooser;
+    }
+
+
+    /**
+     * Fix for bug in MacOS "native" dialog.  If hide extension is on the extension is stripped from the dialog,
+     * so far so good, but it is not added in the file returned.  So, if we know the extension expected from
+     * initialFile add it back.  If not too bad.
+     *
+     * @param initialFile
+     * @param fname
+     */
+    private static String fixMacExtension(File initialFile, String fname) {
+        if (fname.contains(".")) {
+            return fname;   // Has some sort of extension.  Should we compare to expected extension?
+        }
+        String initialName = initialFile.getName();
+        int idx = initialName.lastIndexOf(".");
+        if (idx > 0) {
+            String ext = initialName.substring(idx);
+            return fname + ext;
+        }
+        return fname;
+    }
+
+
+    private static Frame getParentFrame() {
+        return IGV.hasInstance() ? IGV.getInstance().getMainFrame() : null;
+    }
+
+
+}

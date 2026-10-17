@@ -1,0 +1,278 @@
+package org.igv.renderer;
+
+
+import org.igv.feature.LocusScore;
+import org.igv.prefs.IGVPreferences;
+import org.igv.prefs.PreferencesManager;
+import org.igv.track.RenderContext;
+import org.igv.track.Track;
+import org.igv.ui.FontManager;
+import org.igv.ui.UIConstants;
+
+import java.awt.*;
+import java.text.DecimalFormat;
+import java.util.List;
+
+import static org.igv.prefs.Constants.*;
+
+/**
+ * @author jrobinso
+ */
+public abstract class XYPlotRenderer extends DataRenderer {
+
+    static DecimalFormat formatter = new DecimalFormat();
+
+    protected void drawDataPoint(Color graphColor, int dx, int pX, int baseY, int pY,
+                                 LocusScore score, RenderContext context) {
+        context.getGraphic2DForColor(graphColor).fillRect(pX, pY, dx, 2);
+
+    }
+
+    /**
+     * Render the track in the given rectangle.
+     *
+     * @param track
+     * @param locusScores
+     * @param context
+     */
+    public synchronized void renderScores(Track track, List<LocusScore> locusScores, RenderContext context, Rectangle rect) {
+
+        double origin = context.getOrigin();
+        double locScale = context.getScale();
+
+        Color posColor = track.getColor();
+        Color negColor = track.getAltColor();
+
+        // Get the Y axis definition, consisting of minimum, maximum, and base value.  Often
+        // the base value is == min value which is == 0.
+
+        DataRange dataRange = track.getDataRange();
+        float maxValue = dataRange.getMaximum();
+        float baseValue = dataRange.getBaseline();
+        float minValue = dataRange.getMinimum();
+        boolean isLog = dataRange.isLog();
+
+        if (isLog) {
+            minValue = (float) (minValue == 0 ? 0 : Math.log10(minValue));
+            maxValue = (float) Math.log10(maxValue);
+        }
+
+
+        // Calculate the Y scale factor.
+
+        double delta = (maxValue - minValue);
+        double yScaleFactor = rect.getHeight() / delta;
+
+        // Calculate the Y position in pixels of the base value.  Clip to bounds of rectangle
+        double baseDelta = maxValue - baseValue;
+        int baseY = (int) (rect.getY() + baseDelta * yScaleFactor);
+        if (baseY < rect.y) {
+            baseY = rect.y;
+        } else if (baseY > rect.y + rect.height) {
+            baseY = rect.y + rect.height;
+        }
+
+        for (LocusScore score : locusScores) {
+
+            // Note -- don't cast these to an int until the range is checked.
+            // could get an overflow.
+            double pX = ((score.getStart() - origin) / locScale);
+            double dx = Math.ceil((Math.max(1, score.getEnd() - score.getStart())) / locScale) + 1;
+            if ((pX + dx < 0)) {
+                continue;
+            } else if (pX > rect.getMaxX()) {
+                break;
+            }
+
+            float dataY = score.getScore();
+            if (isLog && dataY <= 0) {
+                continue;
+            }
+
+            if (!Float.isNaN(dataY)) {
+
+                // Compute the pixel y location.  Clip to bounds of rectangle.
+                double dy = isLog ? Math.log10(dataY) - baseValue : (dataY - baseValue);
+                int pY = baseY - (int) (dy * yScaleFactor);
+                if (pY < rect.y) {
+                    pY = rect.y;
+                } else if (pY > rect.y + rect.height) {
+                    pY = rect.y + rect.height;
+                }
+
+                Color color = (dataY >= baseValue) ? posColor : negColor;
+                drawDataPoint(color, (int) dx, (int) pX, baseY, pY, score, context);
+
+            }
+        }
+    }
+
+    /**
+     * Method description
+     *
+     * @param track
+     * @param context
+     */
+    @Override
+    public void renderAxis(Track track, RenderContext context, Rectangle ignore) {
+
+        if (context.multiframe) {
+            return;
+        }
+
+        Rectangle arect = context.getTrackRectangle();
+
+        super.renderAxis(track, context, arect);
+
+        IGVPreferences prefs = PreferencesManager.getPreferences();
+
+        Color labelColor = prefs.getAsBoolean(CHART_COLOR_TRACK_NAME)
+                ? track.getColor() : UIConstants.getTrackPanelForeground();
+        Graphics2D labelGraphics = context.getGraphic2DForColor(labelColor);
+
+        labelGraphics.setFont(FontManager.getFont(8));
+
+        if (prefs.getAsBoolean(CHART_DRAW_TRACK_NAME)) {
+
+            // Only attempt if track height is > 25 pixels
+            if (arect.getHeight() > 25) {
+                Rectangle labelRect = new Rectangle(arect.x, arect.y + 10, arect.width, 10);
+                labelGraphics.setFont(FontManager.getFont(10));
+                // Erase behind the label -- it is drawn over the plot area, and with CHART.COLOR_TRACK_NAME on it
+                // takes the track's own color, so a full height bar would otherwise swallow it.
+                GraphicUtils.drawCenteredText(track.getName(), labelRect, labelGraphics, true);
+            }
+        }
+
+        if (prefs.getAsBoolean(CHART_DRAW_Y_AXIS)) {
+
+            Rectangle axisRect = new Rectangle(arect.x, arect.y + 1, AXIS_AREA_WIDTH, arect.height);
+
+            DataRange axisDefinition = track.getDataRange();
+            float maxValue = axisDefinition.getMaximum();
+            float baseValue = axisDefinition.getBaseline();
+            float minValue = axisDefinition.getMinimum();
+            
+            // Bottom (minimum tick mark)
+            int pY = computeYPixelValue(arect, axisDefinition, minValue);
+
+            labelGraphics.drawLine(axisRect.x + AXIS_AREA_WIDTH - 10, pY, axisRect.x + AXIS_AREA_WIDTH - 5, pY);
+            GraphicUtils.drawRightJustifiedText(formatter.format(minValue), axisRect.x + AXIS_AREA_WIDTH - 15, pY, labelGraphics);
+
+            // Top (maximum tick mark)
+            int topPY = computeYPixelValue(arect, axisDefinition, maxValue);
+
+            labelGraphics.drawLine(axisRect.x + AXIS_AREA_WIDTH - 10, topPY,
+                    axisRect.x + AXIS_AREA_WIDTH - 5, topPY);
+            GraphicUtils.drawRightJustifiedText(formatter.format(maxValue),
+                    axisRect.x + AXIS_AREA_WIDTH - 15, topPY + 4, labelGraphics);
+
+            // Connect top and bottom
+            labelGraphics.drawLine(axisRect.x + AXIS_AREA_WIDTH - 10, topPY,
+                    axisRect.x + AXIS_AREA_WIDTH - 10, pY);
+
+            // Middle tick mark.  Draw only if room
+            int midPY = computeYPixelValue(arect, axisDefinition, baseValue);
+
+            if ((midPY < pY - 15) && (midPY > topPY + 15)) {
+                labelGraphics.drawLine(axisRect.x + AXIS_AREA_WIDTH - 10, midPY,
+                        axisRect.x + AXIS_AREA_WIDTH - 5, midPY);
+                GraphicUtils.drawRightJustifiedText(formatter.format(baseValue),
+                        axisRect.x + AXIS_AREA_WIDTH - 15, midPY + 4, labelGraphics);
+            }
+
+        } else if (track.isShowDataRange() && arect.height > 20) {
+            drawScale(track.getDataRange(), context, arect);
+        }
+    }
+
+    @Override
+    public void renderGuides(Track track, RenderContext context, Rectangle ignore) {
+
+        Rectangle arect = context.getTrackRectangle();
+
+        // Draw boundaries if there is room
+        if (arect.getHeight() >= 10) {
+
+            ///TrackProperties pros = track.getProperties();
+
+            // midline
+            DataRange axisDefinition = track.getDataRange();
+            float maxValue = axisDefinition.getMaximum();
+            float baseValue = axisDefinition.getBaseline();
+            float minValue = axisDefinition.getMinimum();
+
+            double maxX = arect.getMaxX();
+            double x = arect.getX();
+            double y = arect.getY();
+
+            if ((baseValue > minValue) && (baseValue < maxValue)) {
+                int baseY = computeYPixelValue(arect, axisDefinition, baseValue);
+
+                getBaselineGraphics(context).drawLine((int) x, baseY, (int) maxX, baseY);
+            }
+
+            IGVPreferences prefs = PreferencesManager.getPreferences();
+
+            Color altColor = track.getAltColor();
+            final Color borderColor = getBorderColor(track, prefs, altColor);
+            Graphics2D borderGraphics = context.getGraphic2DForColor(borderColor);
+
+            // Draw the baseline -- todo, this is a wig track option?
+            double zeroValue = axisDefinition.getBaseline();
+            int zeroY = computeYPixelValue(arect, axisDefinition, zeroValue);
+            borderGraphics.drawLine(arect.x, zeroY, arect.x + arect.width, zeroY);
+
+            // Optionally draw "Y" line  (UCSC track line option)
+            if (track.isDrawYLine()) {
+                Graphics2D yLineGraphics = context.getGraphic2DForColor(Color.gray);
+                int yLine = computeYPixelValue(arect, axisDefinition, track.getYLine());
+                GraphicUtils.drawDashedLine(yLineGraphics, arect.x, yLine, arect.x + arect.width, yLine);
+            }
+
+        }
+    }
+
+    protected Color getBorderColor(Track track, IGVPreferences prefs, Color altColor) {
+        Color borderColor = (prefs.getAsBoolean(CHART_COLOR_BORDERS) && altColor != null && altColor.equals(track.getColor()))
+                ? track.getColor() : Color.lightGray;
+        return borderColor;
+    }
+
+    /**
+     * Get a graphics object for the baseline.
+     * TODO -- make the line style settable by the user
+     *
+     * @param context
+     * @return
+     */
+    private static Graphics2D getBaselineGraphics(RenderContext context) {
+        Graphics2D baselineGraphics;
+        baselineGraphics = (Graphics2D) context.getGraphic2DForColor(Color.lightGray).create();
+        return baselineGraphics;
+    }
+
+    /**
+     * Method description
+     *
+     * @return
+     */
+    public String getDisplayName() {
+        return "Scatter Plot";
+    }
+
+    protected int computeYPixelValue(Rectangle drawingRect, DataRange axisDefinition, double dataY) {
+
+        double maxValue = axisDefinition.getMaximum();
+        double minValue = axisDefinition.getMinimum();
+
+        double yScaleFactor = drawingRect.getHeight() / (maxValue - minValue);
+
+        // Compute the pixel y location.  Clip to bounds of rectangle.
+        // The distince in pixels frmo the data value to the axis maximum
+        double delta = (maxValue - dataY) * yScaleFactor;
+        double pY = drawingRect.getY() + delta;
+
+        return (int) Math.max(drawingRect.getMinY(), Math.min(drawingRect.getMaxY(), pY));
+    }
+}

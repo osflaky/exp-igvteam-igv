@@ -1,0 +1,11 @@
+{
+  "client_id": "YOUR_CLIENT_ID",
+  "client_secret": "YOUR_CLIENT_SECRET",
+  "authorization_endpoint": "https://login.microsoftonline.com/.../oauth2/authorize",
+  "token_endpoint": "https://login.microsoftonline.com/.../oauth2/token",
+  "hosts": ["prod_host.mayo.edu", "dev_host.mayo.edu", "int_host.mayo.edu"],
+  "auth_provider": "YOUR PROVIDER",
+  "app_id_uri": "https://orgtools.onmicrosoft.com/...",
+  "scope": "openid"
+}
+

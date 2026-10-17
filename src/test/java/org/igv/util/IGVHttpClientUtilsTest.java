@@ -1,0 +1,39 @@
+package org.igv.util;
+
+import org.junit.Test;
+
+import java.io.IOException;
+
+import static junit.framework.Assert.assertFalse;
+import static junit.framework.Assert.assertTrue;
+import static org.junit.Assert.assertEquals;
+
+/**
+ * @author Jim Robinson
+ * @date Jul 27, 2011
+ */
+
+public class IGVHttpClientUtilsTest {
+
+    String url = "https://raw.githubusercontent.com/igvteam/igv-data/refs/heads/main/genomes/genomes2.tsv";
+    int byteCount = 5487;
+
+    @Test
+    public void testGetContentLength() throws IOException {
+
+        assertTrue(HttpUtils.getInstance().getContentLength(HttpUtils.createURL(url)) > 0);
+    }
+
+    @Test
+    public void testExists() throws IOException {
+
+        assertTrue("Resource unexpectedly does not exist", HttpUtils.getInstance().resourceAvailable(url));
+
+        url = "http://nosuchserver/genomes/hg18.genome";
+        assertFalse("Resource unexpectedly found", HttpUtils.getInstance().resourceAvailable(url));
+
+        url = "http://igvdata.broadinstitute.org/nosuchfile.txt";
+        assertFalse(HttpUtils.getInstance().resourceAvailable(url));
+    }
+
+}

@@ -1,0 +1,112 @@
+{
+  "genome": "hg19",
+  "locus": "All",
+  "tracks": [
+    {
+      "sequenceTranslationStrandValue": "+",
+      "name": "Reference sequence",
+      "shouldShowTranslation": false,
+      "id": "Reference sequence",
+      "type": "sequence",
+      "order": -9007199254740991
+    },
+    {
+      "format": "refgene",
+      "name": "Refseq All",
+      "id": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/ncbiRefSeq.txt.gz",
+      "type": "annotation",
+      "url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/ncbiRefSeq.txt.gz",
+      "order": 0
+    },
+    {
+      "flipAxis": false,
+      "drawBaseline": true,
+      "graphType": "BAR_CHART",
+      "max": 0.84759665,
+      "format": "bigwig",
+      "mid": 0,
+      "type": "wig",
+      "autoscale": "true",
+      "url": "https://www.encodeproject.org/files/ENCFF947HWO/@@download/ENCFF947HWO.bigWig",
+      "logScale": false,
+      "min": 0,
+      "name": "GM12878 GABPA ChIP-seq fold change over control",
+      "windowFunction": "mean",
+      "id": "https://www.encodeproject.org/files/ENCFF947HWO/@@download/ENCFF947HWO.bigWig",
+      "order": 0,
+      "height": 40
+    },
+    {
+      "flipAxis": false,
+      "drawBaseline": true,
+      "graphType": "BAR_CHART",
+      "max": 4.963344,
+      "format": "bigwig",
+      "mid": 0,
+      "type": "wig",
+      "autoscale": "true",
+      "url": "https://www.encodeproject.org/files/ENCFF000PNJ/@@download/ENCFF000PNJ.bigWig",
+      "logScale": false,
+      "min": 0,
+      "name": "HepG2 POLR2A ChIP-seq raw signal",
+      "windowFunction": "mean",
+      "id": "https://www.encodeproject.org/files/ENCFF000PNJ/@@download/ENCFF000PNJ.bigWig",
+      "order": 0,
+      "height": 40
+    },
+    {
+      "flipAxis": false,
+      "drawBaseline": true,
+      "graphType": "BAR_CHART",
+      "max": 0.9919825,
+      "format": "bigwig",
+      "mid": 0,
+      "type": "wig",
+      "autoscale": "true",
+      "url": "https://www.encodeproject.org/files/ENCFF427RAW/@@download/ENCFF427RAW.bigWig",
+      "logScale": false,
+      "min": 0,
+      "name": "HepG2 POLR2A ChIP-seq signal p-value",
+      "windowFunction": "mean",
+      "id": "https://www.encodeproject.org/files/ENCFF427RAW/@@download/ENCFF427RAW.bigWig",
+      "order": 0,
+      "height": 40
+    },
+    {
+      "visibilityWindow": "103189799",
+      "format": "bigbed",
+      "name": "GM12878 GABPA ChIP-seq peaks and background as input for IDR",
+      "id": "https://www.encodeproject.org/files/ENCFF301MZF/@@download/ENCFF301MZF.bigBed",
+      "type": "annotation",
+      "url": "https://www.encodeproject.org/files/ENCFF301MZF/@@download/ENCFF301MZF.bigBed",
+      "order": 0
+    },
+    {
+      "visibilityWindow": "156520236",
+      "format": "bigbed",
+      "name": "GM12878 GABPA ChIP-seq peaks and background as input for IDR",
+      "id": "https://www.encodeproject.org/files/ENCFF533WKI/@@download/ENCFF533WKI.bigBed",
+      "type": "annotation",
+      "url": "https://www.encodeproject.org/files/ENCFF533WKI/@@download/ENCFF533WKI.bigBed",
+      "order": 0
+    },
+    {
+      "visibilityWindow": "2147483647",
+      "format": "bigbed",
+      "name": "GM12878 GABPA ChIP-seq optimal IDR thresholded peaks",
+      "id": "https://www.encodeproject.org/files/ENCFF476VBY/@@download/ENCFF476VBY.bigBed",
+      "type": "annotation",
+      "url": "https://www.encodeproject.org/files/ENCFF476VBY/@@download/ENCFF476VBY.bigBed",
+      "order": 0
+    },
+    {
+      "visibilityWindow": "2147483647",
+      "format": "bigbed",
+      "name": "GM12878 GABPA ChIP-seq conservative IDR thresholded peaks",
+      "id": "https://www.encodeproject.org/files/ENCFF519HYN/@@download/ENCFF519HYN.bigBed",
+      "type": "annotation",
+      "url": "https://www.encodeproject.org/files/ENCFF519HYN/@@download/ENCFF519HYN.bigBed",
+      "order": 0
+    }
+  ]
+}

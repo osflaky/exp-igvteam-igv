@@ -1,0 +1,321 @@
+package org.igv.renderer;
+
+import org.igv.ui.UIConstants;
+import org.igv.util.StringUtils;
+
+import java.awt.*;
+import java.awt.geom.Rectangle2D;
+
+/**
+ * @author jrobinso
+ */
+public class GraphicUtils {
+
+   
+    public static void drawCenteredChar(Graphics g, char[] chars, int x, int y,
+                                        int w, int h) {
+
+        // Get measures needed to center the message
+        FontMetrics fm = g.getFontMetrics();
+
+        // How many pixels wide is the string
+        int msg_width = fm.charsWidth(chars, 0, 1);
+
+        // How far above the baseline can the font go?
+        int ascent = fm.getMaxAscent();
+
+        // How far below the baseline?
+        int descent = fm.getMaxDescent();
+
+        // Use the string width to find the starting point
+        int msgX = x + w / 2 - msg_width / 2;
+
+        // Use the vertical height of this font to find
+        // the vertical starting coordinate
+        int msgY = y + h / 2 - descent / 2 + ascent / 2;
+
+        g.drawChars(chars, 0, 1, msgX, msgY);
+
+    }
+
+    /**
+     * Draw a block of text centered in or over the rectangle
+     *
+     * @param text
+     * @param rect
+     * @param g
+     */
+    public static void drawCenteredText(String text, Rectangle rect, Graphics g) {
+        drawCenteredText(text, rect.x, rect.y, rect.width, rect.height, g);
+
+    }
+
+    public static void drawCenteredText(String text, int x, int y, int w, int h, Graphics g) {
+        drawCenteredText(text, x, y, w, h, g, null);
+    }
+
+    /**
+     * Draw centered text, optionally erasing a tight box behind it first so the text stays legible over whatever
+     * has already been painted there.  See {@link #clearColor()} for the color used.
+     */
+    public static void drawCenteredText(String text, Rectangle rect, Graphics g, boolean clear) {
+        drawCenteredText(text, rect.x, rect.y, rect.width, rect.height, g,
+                clear ? clearColor() : null);
+    }
+
+    public static void drawCenteredText(String text, int x, int y, int w, int h, Graphics g, Color backgroundColor) {
+        FontMetrics fontMetrics = g.getFontMetrics();
+
+        Rectangle2D textBounds = fontMetrics.getStringBounds(text, g);
+        int xOffset = (int) ((w - textBounds.getWidth()) / 2);
+        int yOffset = (int) ((h - textBounds.getHeight()) / 2);
+
+        int xs = x + xOffset;
+        int ys = y + h - yOffset - (int) (textBounds.getHeight() / 4);
+
+        if (backgroundColor != null) {
+            Graphics gb = g.create();
+            try {
+                gb.setColor(backgroundColor);
+                int th = (int) textBounds.getHeight();
+                int pad = 2;
+                gb.fillRect(xs - pad, ys - 3 * th / 4, (int) textBounds.getWidth() + 2 * pad, th);
+            } finally {
+                gb.dispose();
+            }
+        }
+
+        // The caller's color is honored -- this text is not always on the panel background (amino acid letters sit
+        // on a colored block, indel labels on a filled callout), so forcing white in dark mode used to produce
+        // white-on-white.  Callers drawing on the panel use UIConstants.getTrackPanelForeground().
+        g.drawString(text, xs, ys);
+    }
+
+    /**
+     * Color used to erase the area behind text drawn with "clear".  Every caller draws on the name panel or the
+     * data panel, which share this background, so use it directly rather than a hardcoded black or white --
+     * neither theme's background is pure black or pure white, so a literal punches a visible hole in the panel.
+     * <p>
+     * Deliberately not {@code Graphics2D.getBackground()}: only some callers set it, and a graphics derived from a
+     * BufferedImage (the image export and uisnapshot paths) reports black, which would paint a black box behind
+     * text in light mode.
+     */
+    private static Color clearColor() {
+        return UIConstants.getTrackPanelBackground();
+    }
+
+    public static void drawVerticallyCenteredText(String text, int margin, Rectangle rect, Graphics g2D, boolean rightJustify) {
+        drawVerticallyCenteredText(text, margin, rect, g2D, rightJustify, false);
+    }
+
+
+    /**
+     * Draw a block of text centered vertically in the rectangle
+     *
+     * @param text
+     * @param rect
+     * @param g2D
+     */
+    public static void drawVerticallyCenteredText
+            (String text,
+             int margin,
+             Rectangle rect,
+             Graphics g2D,
+             boolean rightJustify,
+             boolean clear) {
+
+        Color originalColor = g2D.getColor();
+
+        FontMetrics fontMetrics = g2D.getFontMetrics();
+        Rectangle2D textBounds = fontMetrics.getStringBounds(text, g2D);
+
+        int yOffset = (int) ((rect.getHeight() - textBounds.getHeight()) / 2);
+        int yPos = (rect.y + rect.height) - yOffset - (int) (textBounds.getHeight() / 4);
+
+        int xPos = rightJustify ? rect.x + rect.width - margin - (int) textBounds.getWidth() : margin;
+
+        if (clear) {
+            g2D.setColor(clearColor());
+            int th = (int) textBounds.getHeight();
+            g2D.fillRect(xPos, yPos - 3 * th / 4, (int) textBounds.getWidth(), th);
+        }
+
+        g2D.setColor(originalColor);
+
+        if (rightJustify) {
+            drawRightJustifiedText(text, rect.x + rect.width - margin, yPos, g2D);
+        } else {
+            g2D.drawString(text, margin, yPos);
+        }
+
+        g2D.setColor(originalColor);
+    }
+
+    /**
+     * Draw a block of text right justified to the given location
+     *
+     * @param text
+     * @param right
+     * @param y
+     * @param g
+     */
+
+    public static void drawRightJustifiedText(String text, int right, int y,
+                                              Graphics g) {
+        FontMetrics fontMetrics = g.getFontMetrics();
+        Rectangle2D textBounds = fontMetrics.getStringBounds(text, g);
+        int x = right - (int) textBounds.getWidth();
+        g.drawString(text, x, y);
+
+    }
+
+    public static void drawDottedDashLine(Graphics2D g, int x1, int y1, int x2,
+                                      int y2) {
+        Stroke thindashed = new BasicStroke(1.0f, // line width
+                BasicStroke.CAP_BUTT, // cap style
+                BasicStroke.JOIN_BEVEL, 1.0f, // join style, miter limit
+                new float[]{8.0f, 3.0f, 2.0f, 3.0f}, // the dash pattern :  on 8, off 3, on 2, off 3
+                0.0f);  // the dash phase
+        drawDashedLine(g, thindashed, x1, y1, x2, y2);
+
+    }
+
+    public static void drawDashedLine(Graphics2D g, int x1, int y1, int x2,
+                                      int y2) {
+        Stroke thindashed = new BasicStroke(1.0f, // line width
+                BasicStroke.CAP_BUTT, // cap style
+                BasicStroke.JOIN_BEVEL, 1.0f, // join style, miter limit
+                new float[]{3.0f, 3.0f}, // the dash pattern :  on 8, off 3, on 2, off 3
+                0.0f);  // the dash phase
+        drawDashedLine(g, thindashed, x1, y1, x2, y2);
+
+    }
+
+    public static void drawWrappedText(String string, Rectangle rect, Graphics2D g2D, boolean clear) {
+        FontMetrics fontMetrics = g2D.getFontMetrics();
+        Rectangle2D stringBounds = fontMetrics.getStringBounds(string, g2D);
+        final int margin = 5;
+        int textHeight = (int) stringBounds.getHeight() + margin;
+        int availableWidth = rect.width - 2 * margin;
+        double textWidth = stringBounds.getWidth();
+        if (textWidth <= availableWidth) {
+            GraphicUtils.drawVerticallyCenteredText(string, margin, rect, g2D, false, clear);
+        } else {
+            // Break the string into lines that fit within the available width using actual font metrics
+            java.util.List<String> lines = new java.util.ArrayList<>();
+            int start = 0;
+            while (start < string.length()) {
+                // Find the maximum number of characters that fit in the available width
+                int end = start + 1;
+                while (end <= string.length() &&
+                        fontMetrics.getStringBounds(string, start, end, g2D).getWidth() <= availableWidth) {
+                    end++;
+                }
+                end = Math.min(end - 1, string.length());
+                if (end == start) {
+                    end = start + 1; // at least one character per line
+                }
+                lines.add(string.substring(start, end));
+                start = end;
+            }
+
+            int nLines = lines.size();
+            if (nLines * textHeight <= rect.height) {
+                // Enough vertical space -- draw wrapped lines centered vertically
+                Rectangle tmp = new Rectangle(rect);
+                tmp.y -= ((nLines - 1) * textHeight) / 2;
+                for (String line : lines) {
+                    GraphicUtils.drawVerticallyCenteredText(line, margin, tmp, g2D, false, nLines == 1 && clear);
+                    tmp.y += textHeight;
+                }
+            } else {
+                // Not enough room to wrap -- shorten the string in the middle with "..."
+                int nChars = string.length();
+                String shortString;
+                do {
+                    nChars--;
+                    shortString = StringUtils.checkLength(string, nChars);
+                } while (fontMetrics.getStringBounds(shortString, g2D).getWidth() > availableWidth && nChars > 1);
+
+                GraphicUtils.drawVerticallyCenteredText(shortString, margin, rect, g2D, false, clear);
+            }
+        }
+    }
+
+
+    /**
+     * Method description
+     * Stroke thindashed = new BasicStroke(thickness, // line width
+     * BasicStroke.CAP_BUTT, // cap style
+     * BasicStroke.JOIN_BEVEL, 1.0f, // join style, miter limit
+     * dashPattern, // the dash pattern :  on 8, off 3, on 2, off 3
+     * phase);  // the dash phase
+     *
+     * @param g
+     */
+    public static void drawDashedLine(Graphics2D g, Stroke stroke,
+                                      int x1, int y1, int x2, int y2) {
+
+
+        Stroke currentStroke = g.getStroke();
+        g.setStroke(stroke);
+        g.drawLine(x1, y1, x2, y2);
+        g.setStroke(currentStroke);
+
+    }
+
+
+    public static void drawHorizontalArrow(Graphics g, Rectangle r, boolean direction) {
+        int[] x;
+        int[] y;
+
+        int dy = r.height / 3;
+        int y0 = r.y;
+        int y1 = y0 + dy;
+        int y3 = y0 + r.height;
+        int y2 = y3 - dy;
+        int yc = (y1 + y2) / 2;
+        int dx = yc - y0;
+        if (direction) {
+            int x1 = r.x;
+            int x3 = x1 + r.width;
+            int x2 = x3 - dx;
+            x = new int[]{x1, x2, x2, x3, x2, x2, x1};
+            y = new int[]{y1, y1, y0, yc, y3, y2, y2};
+        } else {
+            int x1 = r.x;
+            int x3 = x1 + r.width;
+            int x2 = x1 + dx;
+            x = new int[]{x1, x2, x2, x3, x3, x2, x2};
+            y = new int[]{yc, y0, y1, y1, y2, y2, y3};
+
+        }
+
+        g.fillPolygon(x, y, x.length);
+    }
+
+    public static void drawCenteredText(char[] chars, int x, int y, int w, int h, Graphics2D g) {
+
+        // Get measures needed to center the message
+        FontMetrics fm = g.getFontMetrics();
+
+        // How many pixels wide is the string
+        int msg_width = fm.charsWidth(chars, 0, 1);
+
+        // How far above the baseline can the font go?
+        int ascent = fm.getMaxAscent();
+
+        // How far below the baseline?
+        int descent = fm.getMaxDescent();
+
+        // Use the string width to find the starting point
+        int msgX = x + w / 2 - msg_width / 2;
+
+        // Use the vertical height of this font to find
+        // the vertical starting coordinate
+        int msgY = y + h / 2 - descent / 2 + ascent / 2;
+
+        g.drawChars(chars, 0, 1, msgX, msgY);
+
+    }
+}

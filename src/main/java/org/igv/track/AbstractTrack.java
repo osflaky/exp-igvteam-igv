@@ -1,0 +1,1622 @@
+package org.igv.track;
+
+
+import htsjdk.tribble.Feature;
+import org.igv.Globals;
+import org.igv.event.IGVEventBus;
+import org.igv.event.IGVEventObserver;
+import org.igv.feature.IGVFeature;
+import org.igv.feature.Strand;
+import org.igv.logging.LogManager;
+import org.igv.logging.Logger;
+import org.igv.prefs.Constants;
+import org.igv.prefs.PreferencesManager;
+import org.igv.renderer.*;
+import org.igv.renderer.Renderer;
+import org.igv.sample.SampleAttributeComparator;
+import org.igv.sample.SampleFilter;
+import org.igv.sample.SampleGroup;
+import org.igv.sample.SampleSort;
+import org.igv.session.SessionAttribute;
+import org.igv.ui.FontManager;
+import org.igv.ui.IGV;
+import org.igv.ui.TooltipTextFrame;
+import org.igv.ui.color.ColorUtilities;
+import org.igv.ui.panel.*;
+import org.igv.ui.util.UIUtilities;
+import org.igv.util.FileUtils;
+import org.igv.util.ResourceLocator;
+import org.json.JSONObject;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+
+import java.awt.*;
+import java.awt.event.MouseEvent;
+import java.util.*;
+import java.util.List;
+import java.util.stream.Collectors;
+
+import static org.igv.prefs.Constants.*;
+
+/**
+ * @author jrobinso
+ */
+
+public abstract class AbstractTrack implements Track {
+
+    private static Logger log = LogManager.getLogger(AbstractTrack.class);
+
+    public static final DisplayMode DEFAULT_DISPLAY_MODE = DisplayMode.COLLAPSED;
+    public static final int DEFAULT_HEIGHT = 20;
+    public static final int VISIBILITY_WINDOW = -1;
+    public static final boolean DEFAULT_SHOW_FEATURE_NAMES = true;
+    protected final boolean darkMode;
+
+    TrackPanelScrollPane viewport;
+    protected int groupGap = 10;
+
+    private ResourceLocator resourceLocator;
+    private String id;
+    private String sampleId;
+    private String name;
+    private String featureInfoURL;
+    private boolean itemRGB = true;
+
+    private boolean useScore;
+    protected boolean autoScale = true;   // By default, can be overriden by track line
+    private float viewLimitMin = 0;     // From UCSC track line
+    private float viewLimitMax = 1000;  // From UCSC track line
+    protected int fontSize;
+    private boolean showDataRange = true;
+
+    private int top;
+    protected int rowHeight;
+
+    // Row heights applied when a track with rows is set to the SQUISHED or EXPANDED display mode.  Track types with
+    // rows set these in their constructors.  The current row height can still be overridden explicitly by the user.
+    protected int defaultSquishedRowHeight = 1;
+    protected int defaultExpandedRowHeight = DEFAULT_HEIGHT;
+    protected int minimumHeight = 20;
+    private DataType dataType = DataType.OTHER;
+    private boolean selected = false;
+    private boolean visible = true;
+
+    boolean overlaid;
+    boolean drawYLine = false;
+    float yLine = 0;
+
+    private ContinuousColorScale colorScale;
+
+    String autoscaleGroup;
+
+    protected Color defaultColor;
+    protected Color color = null;
+    protected Color altColor = null;
+
+    protected int visibilityWindow = VISIBILITY_WINDOW;
+    private DisplayMode displayMode = DEFAULT_DISPLAY_MODE;
+
+    /**
+     * This is the visible height of the track viewport, not necessarily the content height of the track.
+     */
+    protected int height;
+
+
+    protected DataRange dataRange;
+    private boolean showFeatureNames = DEFAULT_SHOW_FEATURE_NAMES;
+    private String trackLine = null;
+
+    private long order = 0;
+
+    // Sample info related properties.
+    private Map<String, String> attributes = new HashMap();
+    protected List<SampleGroup> sampleGroups = new ArrayList<>();
+    protected List<String> sampleNames;
+    protected String groupBy;
+    protected SampleSort sampleSort;
+    private SampleFilter sampleFilter;
+    private List<String> selectedSamples;
+
+
+    @Override
+    public long getOrder() {
+        return order;
+    }
+
+    @Override
+    public void setOrder(long order) {
+        this.order = order;
+    }
+
+    public AbstractTrack() {
+        this.darkMode = Globals.isDarkMode();
+        defaultColor = darkMode ? Globals.DARK_MODE_BLUE : Color.blue.darker();
+    }
+
+    public AbstractTrack(
+            ResourceLocator resourceLocator,
+            String id,
+            String name) {
+        this();
+        this.resourceLocator = resourceLocator;
+        this.id = id;
+        this.name = name;
+        if (resourceLocator != null) {
+            this.order = resourceLocator.getOrder();
+        }
+        init();
+    }
+
+    public AbstractTrack(ResourceLocator locator) {
+        this(locator, locator != null ? locator.getPath() : null, locator != null ? locator.getTrackName() : null);
+    }
+
+    private void init() {
+
+        try {
+            fontSize = PreferencesManager.getPreferences().getAsInt(DEFAULT_FONT_SIZE);
+        } catch (Exception e) {
+            log.error("Error initializing font size. ", e);
+        }
+
+        showDataRange = PreferencesManager.getPreferences().getAsBoolean(CHART_SHOW_DATA_RANGE);
+        if (PreferencesManager.getPreferences().getAsBoolean(EXPAND_FEAUTRE_TRACKS)) {
+            displayMode = DisplayMode.EXPANDED;
+        }
+
+        // By default, all tracks have a single implied sample.  This will get overwritten for certain track types
+        // in initSample()
+        sampleNames = Collections.singletonList(getName());
+        this.sampleGroups.add(new SampleGroup("", sampleNames));
+
+    }
+
+    /**
+     * Initializes sample names for this track.  This can't be done in the constructor as subclasses
+     * have differing ways of determining sample names.  This is called from subclass constructors.
+     *
+     * @param sampleNames
+     */
+    protected void initSamples(List<String> sampleNames) {
+        this.sampleNames = sampleNames;
+        resetSampleGroups();
+    }
+
+
+    @Override
+    public void setViewport(TrackPanelScrollPane viewport) {
+        this.viewport = viewport;
+    }
+
+    @Override
+    public TrackPanelScrollPane getViewport() {
+        return this.viewport;
+    }
+
+    public void setRendererClass(Class rc) {
+        // Ignore by default
+    }
+
+    public String getFeatureInfoURL() {
+        return featureInfoURL;
+    }
+
+    public void setFeatureInfoURL(String featureInfoURL) {
+        this.featureInfoURL = featureInfoURL;
+    }
+
+    public void setUseScore(boolean useScore) {
+        this.useScore = useScore;
+    }
+
+    public String getId() {
+        return id;
+    }
+
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public String getDisplayName() {
+
+        String sampleKey = IGV.getInstance().getSession().getTrackAttributeName();
+        if (sampleKey != null && sampleKey.trim().length() > 0) {
+            String name = getAttributeValue(sampleKey.trim());
+            if (name != null) {
+                return name;
+            }
+        }
+        return getName();
+    }
+
+
+    public void setSampleId(String sampleId) {
+        this.sampleId = sampleId;
+    }
+
+    @Override
+    public List<SampleGroup> getSampleGroups() {
+        return sampleGroups;
+    }
+
+    protected void drawGroupDivider(Graphics2D graphics, Rectangle trackRect, int y) {
+        Color c = graphics.getColor();
+        Color lineColor = Globals.isDarkMode() ? Color.white : Color.black;
+        graphics.setColor(lineColor);
+        GraphicUtils.drawDashedLine(graphics, trackRect.x, y + groupGap / 2, trackRect.x + trackRect.width, y + groupGap / 2);
+        graphics.setColor(c);
+    }
+
+    // Implement the default rendering of the track name.  Subclasses may override.
+    public void renderName(Graphics2D g2D, Rectangle trackRectangle, Rectangle visibleRect) {
+
+        String trackName = getDisplayName();
+        if ((trackName != null)) {
+
+            if (visibleRect.getHeight() > 3) {
+                Font font = FontManager.getFont(fontSize);
+                g2D.setFont(font);
+                GraphicUtils.drawWrappedText(trackName, visibleRect, g2D, true);
+            }
+        }
+    }
+
+
+    @Override
+    public void renderAttributes(Graphics2D graphics, Rectangle trackRectangle,
+                                 List<String> attributeNames, List<MouseableRegion> mouseRegions) {
+
+        final var attributeManager = AttributeManager.getInstance();
+        Rectangle clipBounds = graphics.getClipBounds();
+
+        boolean hasGroups = getSampleGroups().size() > 0;
+        var y = trackRectangle.y + this.getSampleOffset();
+        int sampleHeight = getSampleHeight();
+        for (var group : getSampleGroups()) {
+            for (String s : group.samples()) {
+                if (y > clipBounds.y + clipBounds.height) {
+                    break;
+                }
+                if (y + sampleHeight > clipBounds.y) {
+                    var x = trackRectangle.x;
+                    for (var name : attributeNames) {
+                        final var key = name.toUpperCase();
+                        var attributeValue = attributeManager.getAttribute(s, key);
+                        if (attributeValue != null) {
+                            var rect = new Rectangle(x, y, AttributeHeaderPanel.ATTRIBUTE_COLUMN_WIDTH, sampleHeight - 1);
+                            graphics.setColor(AttributeManager.getInstance().getColor(key, attributeValue));
+                            graphics.fill(rect);
+                            mouseRegions.add(new MouseableRegion(rect, key, attributeValue));
+                        }
+                        x += AttributeHeaderPanel.ATTRIBUTE_COLUMN_WIDTH + AttributeHeaderPanel.COLUMN_BORDER_WIDTH;
+                    }
+                }
+                y += sampleHeight;
+            }
+            if (hasGroups) {
+                drawGroupDivider(graphics, trackRectangle, y);
+            }
+            y += groupGap; // Gap
+        }
+    }
+
+    @Override
+    public void setColor(Color color) {
+        this.color = color;
+    }
+
+    public Color getColor() {
+        return color == null ? defaultColor : color;
+    }
+
+    @Override
+    public void setAltColor(Color color) {
+        altColor = color;
+    }
+
+    public Color getAltColor() {
+        return altColor == null ? getColor() : altColor;
+    }
+
+    public void setDefaultColor(Color color) {
+        this.defaultColor = color;
+    }
+
+    @Override
+    public Color getDefaultColor() {
+        return defaultColor;
+    }
+
+    public ResourceLocator getResourceLocator() {
+        return resourceLocator;
+    }
+
+    public Collection<ResourceLocator> getResourceLocators() {
+        return Arrays.asList(getResourceLocator());
+    }
+
+    /**
+     * Add an attribute to this track and register the key with the attribute panel.
+     * <p/>
+     * Note:  Attribute keys are case insensitive.  Currently this is implemented
+     * by forcing all keys to upper case
+     *
+     * @param name
+     * @param value
+     */
+    public void setAttributeValue(String name, String value) {
+        String key = name.toUpperCase();
+        if (key.equals(AttributeManager.GROUP_AUTOSCALE)) {
+            autoscaleGroup = value;
+        } else {
+            attributes.put(key, value);
+        }
+        AttributeManager.getInstance().addAttribute(getSample(), name, value);
+
+    }
+
+    public void removeAttribute(String name) {
+        String key = name.toUpperCase();
+        if (key.equals(AttributeManager.GROUP_AUTOSCALE)) {
+            autoscaleGroup = null;
+        } else {
+            attributes.remove(key);
+        }
+        AttributeManager.getInstance().removeAttribute(getSample(), name);
+    }
+
+
+    /**
+     * Return the attribute value.  Attribute lookup occurs in the following order, if all fail null is returned.
+     * <p/>
+     * (1) the track attribute table
+     * (2) by sampleId, as set in the Resource element of a session or load-from-server menu
+     * (3) by attributeKey, set from the original track name
+     * (4) by full path to the file associated with this track
+     *
+     * @param attributeName
+     * @return
+     */
+    public String getAttributeValue(String attributeName) {
+
+        String key = attributeName.toUpperCase();
+        String value;
+        if (key.equals(AttributeManager.GROUP_AUTOSCALE)) {
+            value = autoscaleGroup;
+            if (value == null) {
+                value = getFromAttributeManager(key);
+                autoscaleGroup = value;
+            }
+        } else {
+            value = attributes.get(key);
+            if (value == null) {
+                value = getFromAttributeManager(key);
+            }
+        }
+        return value;
+    }
+
+    private String getFromAttributeManager(String key) {
+        final AttributeManager attributeManager = AttributeManager.getInstance();
+        String value = null;
+        if (value == null && getSample() != null) {
+            value = attributeManager.getAttribute(getSample(), key);
+        }
+        if (value == null && getResourceLocator() != null && getResourceLocator().getPath() != null) {
+            value = attributeManager.getAttribute(getResourceLocator().getPath(), key);
+        }
+        return value;
+    }
+
+    public String getSample() {
+        if (sampleId != null) {
+            return sampleId;    // Explicitly set sample ID (e.g. from server load XML)
+        }
+        sampleId = AttributeManager.getInstance().getSampleFor(getName());
+        return sampleId != null ? sampleId : getName();
+    }
+
+    @Override
+    public int getHeight() {
+        return !isVisible() ? 0 : height == 0 ? getContentHeight() : height;
+    }
+
+    public void setHeight(int height) {
+        this.height = height;
+        if (viewport != null) {
+            viewport.validateTrackHeight();
+        }
+    }
+
+    public void setMinimumHeight(int minimumHeight) {
+        this.minimumHeight = minimumHeight;
+    }
+
+    @Override
+    public int getMinimumHeight() {
+        return minimumHeight > 0 ? minimumHeight : Track.super.getMinimumHeight();
+    }
+
+    @Override
+    public int getRowHeight() {
+        return rowHeight;
+    }
+
+    @Override
+    public void setRowHeight(int rowHeight) {
+        this.rowHeight = rowHeight;
+    }
+
+    /**
+     * Set the mode field directly rather than through setDisplayMode, which pins the height of an auto-sized track.
+     * A new row height should resize the track to its content.  CUSTOM packs rows as SQUISHED and EXPANDED do, so
+     * no repacking is needed.
+     */
+    @Override
+    public void setCustomRowHeight(int rowHeight) {
+        if (hasRows() && (displayMode == DisplayMode.SQUISHED || displayMode == DisplayMode.EXPANDED)) {
+            this.displayMode = DisplayMode.CUSTOM;
+        }
+        setRowHeight(rowHeight);
+    }
+
+    @Override
+    public int getDefaultSquishedRowHeight() {
+        return defaultSquishedRowHeight;
+    }
+
+    @Override
+    public int getDefaultExpandedRowHeight() {
+        return defaultExpandedRowHeight;
+    }
+
+    @Override
+    public void setDataType(DataType type) {
+        this.dataType = type;
+    }
+
+    public DataType getDataType() {
+        return dataType;
+    }
+
+    public boolean isVisible() {
+        return visible;
+    }
+
+    public void setVisible(boolean visible) {
+        if (this.visible != visible) {
+            this.visible = visible;
+            if (IGV.hasInstance()) IGV.getInstance().revalidateTrackPanels();
+        }
+    }
+
+    public void setOverlayed(boolean bool) {
+        this.overlaid = bool;
+    }
+
+
+    public DataRange getDataRange() {
+        if (dataRange == null) {
+            // Use the color scale if there is one
+            float min = (float) (colorScale == null ? 0 : colorScale.getMinimum());
+            float max = (float) (colorScale == null ? 10 : colorScale.getMaximum());
+            float baseline = (float) (colorScale == null ? 0 : (colorScale.getNegStart() + colorScale.getPosStart()) / 2);
+
+            setDataRange(new DataRange(min, baseline, max));
+        }
+        return dataRange;
+    }
+
+
+    public void setDataRange(DataRange axisDefinition) {
+        this.dataRange = axisDefinition;
+    }
+
+    protected Renderer getDefaultRenderer() {
+        DataType dataType = getDataType();
+        switch (dataType) {
+            case RNAI:
+            case COPY_NUMBER:
+            case ALLELE_SPECIFIC_COPY_NUMBER:
+            case GENE_EXPRESSION:
+            case DNA_METHYLATION:
+            case LOH:
+            case CHIP_CHIP:
+                return new HeatmapRenderer();
+            default:
+                return new BarChartRenderer();
+        }
+    }
+
+    public Collection<WindowFunction> getAvailableWindowFunctions() {
+        return new ArrayList();
+    }
+
+    public boolean handleDataClick(TrackClickEvent te) {
+
+        if (IGV.getInstance().isShowDetailsOnClick()) {
+            return openTooltipWindow(te);
+        }
+        return false;
+    }
+
+    protected boolean openTooltipWindow(TrackClickEvent e) {
+        ReferenceFrame frame = e.getFrame();
+        final MouseEvent me = e.getMouseEvent();
+        String popupText = getValueStringAt(frame.getChrName(), e.getChromosomePosition(), e.getMouseEvent().getX(), e.getMouseEvent().getY(), frame);
+
+        if (popupText != null) {
+            Color color = IGV.getInstance().getRootPane().getJMenuBar().getForeground();
+            String htmlColor = String.format("#%02x%02x%02x", color.getRed(), color.getGreen(), color.getBlue());
+            popupText = "<div style=\"color: " + htmlColor + "\">" + popupText + "</div>";
+
+            final TooltipTextFrame tf = new TooltipTextFrame(getName(), popupText);
+            Point p = me.getComponent().getLocationOnScreen();
+            tf.setLocation(Math.max(0, p.x + me.getX() - 150), Math.max(0, p.y + me.getY() - 150));
+
+            UIUtilities.invokeOnEventThread(() -> tf.setVisible(true));
+            return true;
+        }
+        return false;
+    }
+
+    public void handleNameClick(MouseEvent e) {
+        // Do nothing
+    }
+
+    @Override
+    public void setAutoScale(boolean autoScale) {
+        this.autoScale = autoScale;
+    }
+
+    /**
+     * Set some properties of this track,  usually from a "track line" specification.
+     * <p/>
+     * TODO -- keep the properties object, rather than copy all the values.
+     *
+     * @param properties
+     */
+    public void setProperties(TrackProperties properties) {
+
+        if (properties.isItemRGB() != null) {
+            this.itemRGB = properties.isItemRGB();
+        }
+        if (properties.isUseScore() != null) {
+            this.useScore = properties.isUseScore();
+        }
+        if (properties.getyLine() != null) {
+            this.yLine = properties.getyLine();
+        }
+        this.drawYLine = properties.isDrawYLine();
+
+        // The viewLimit properties com from UCSC track lines and control "useScore" shading. They
+        // are somewhat redundant with dataRange,  but we keep both for now to avoid breaking existing behavior.
+        if (properties.getMinValue() != null) {
+            this.viewLimitMin = properties.getMinValue();
+        }
+        if (properties.getMaxValue() != null) {
+            this.viewLimitMax = properties.getMaxValue();
+        }
+
+        if (properties.getMaxValue() != null) {
+
+            float max = properties.getMaxValue();
+
+            Float minVal = properties.getMinValue();
+            float min = (minVal == null) ? 0f : minVal;
+
+            Float midVal = properties.getMidValue();
+            float mid = (midVal == null) ? (min < 0 ? 0f : min) : midVal;
+
+            DataRange dr = new DataRange(min, mid, max);
+            setDataRange(dr);
+
+            if (properties.isLogScale()) {
+                dr.setType(DataRange.Type.LOG);
+            }
+
+            // If the user has explicity set a data range and colors apply to heatmap as well
+            Color maxColor = properties.getColor();
+            Color minColor = properties.getAltColor();
+            if (maxColor != null && minColor != null) {
+
+                Float tmp = properties.getNeutralFromValue();
+                float neutralFrom = tmp == null ? mid : tmp;
+                tmp = properties.getNeutralToValue();
+                float neutralTo = tmp == null ? mid : tmp;
+
+                Color midColor = properties.getMidColor();
+                if (midColor == null) {
+                    midColor = AbstractColorScale.neutralColor();
+                }
+                colorScale = new ContinuousColorScale(neutralFrom, min, neutralTo, max, minColor, midColor, maxColor);
+            }
+        }
+
+        if (properties.getDisplayMode() != null) {
+            this.setDisplayMode(properties.getDisplayMode());
+        }
+
+        if (properties.getName() != null) {
+            name = properties.getName();
+        }
+        if (properties.getColor() != null) {
+            setColor(properties.getColor());
+        }
+        if (properties.getAltColor() != null) {
+            setAltColor(properties.getAltColor());
+        }
+        if (properties.getMidColor() != null) {
+            //setMidColor(trackProperties.getMidColor());
+        }
+        if (properties.getHeight() != null) {
+            setHeight(properties.getHeight());
+        }
+        if (properties.getMinHeight() != null) {
+            setMinimumHeight(properties.getMinHeight());
+        }
+        if (properties.getRendererClass() != null) {
+            setRendererClass(properties.getRendererClass());
+            if (properties.getRendererClass() == PointsRenderer.class) {
+                setWindowFunction(WindowFunction.none);
+            }
+        }
+        if (properties.getWindowingFunction() != null) {
+            setWindowFunction(properties.getWindowingFunction());
+        }
+        if (properties.getUrl() != null) {
+            setFeatureInfoURL(properties.getUrl());
+        }
+
+        Map<String, String> attributes = properties.getAttributes();
+        if (attributes != null) {
+            for (Map.Entry<String, String> entry : attributes.entrySet()) {
+                this.setAttributeValue(entry.getKey(), entry.getValue());
+            }
+        }
+
+        Boolean as = properties.getAutoScale();
+        if (as != null) {
+            this.autoScale = as;
+        }
+
+        if (properties.getFeatureVisibilityWindow() >= 0) {
+            setVisibilityWindow(properties.getFeatureVisibilityWindow());
+        }
+    }
+
+    /**
+     * @return the top
+     */
+    public int getY() {
+        return top;
+    }
+
+    public void setColorScale(ContinuousColorScale colorScale) {
+        this.colorScale = colorScale;
+    }
+
+    /**
+     * @param top the top to set
+     */
+    public void setY(int top) {
+        this.top = top;
+    }
+
+    /**
+     * Return the color scale for this track.  Used for heatmaps.
+     *
+     * @return
+     */
+    public ContinuousColorScale getColorScale() {
+
+        if (colorScale == null) {
+
+            // Check for a default color scale for this track type in the session.  This is a long deprecated
+            // session feature,  but we need to support it for backward compatibility.
+            ContinuousColorScale defaultScale = IGV.getInstance().getSession().getColorScale(dataType);
+            if (defaultScale == null) {
+                // Now check user preferences
+                defaultScale = PreferencesManager.getPreferences().getColorScale(dataType);
+            }
+            if (defaultScale != null) {
+                return defaultScale;
+            }
+
+            // There is no default,  create one from the data range and track colors
+            double min = dataRange == null ? 0 : dataRange.getMinimum();
+            double max = dataRange == null ? 10 : dataRange.getMaximum();
+            final Color neutral = AbstractColorScale.neutralColor();
+            if (min < 0) {
+                Color minColor = altColor == null ? oppositeColor(neutral) : altColor;
+                colorScale = new ContinuousColorScale(min, 0, max, minColor, neutral, getColor());
+            } else {
+                colorScale = new ContinuousColorScale(min, max, neutral, getColor());
+            }
+            colorScale.setNoDataColor(AbstractColorScale.noDataColor());
+        }
+
+        return colorScale;
+    }
+
+    private Color oppositeColor(Color c) {
+        float[] rgb = new float[4];
+        c.getRGBComponents(rgb);
+        rgb[0] = Math.abs(rgb[0] - 255);
+        rgb[1] = Math.abs(rgb[1] - 255);
+        rgb[2] = Math.abs(rgb[2] - 255);
+        return Color.getHSBColor(rgb[0], rgb[1], rgb[2]);
+    }
+
+
+    public boolean isItemRGB() {
+        return itemRGB;
+    }
+
+    public boolean isUseScore() {
+        return useScore;
+    }
+
+    public int getFontSize() {
+        return fontSize;
+    }
+
+    public void setFontSize(int fontSize) {
+        this.fontSize = fontSize;
+    }
+
+    public boolean isShowDataRange() {
+        return showDataRange;
+    }
+
+    public void setShowDataRange(boolean showDataRange) {
+        this.showDataRange = showDataRange;
+    }
+
+
+    /**
+     * Overriden by subclasses
+     *
+     * @param e
+     * @return
+     */
+    public Feature getFeatureAtMousePosition(TrackClickEvent e) {
+        return null;
+    }
+
+
+    public float logScaleData(float dataY) {
+
+        if (Float.isNaN(dataY)) {
+            return dataY;
+        }
+
+        // Special case for copy # -- centers data around 2 copies (1 for allele
+        // specific) and log normalizes
+        if (((getDataType() == DataType.COPY_NUMBER) ||
+                (getDataType() == DataType.ALLELE_SPECIFIC_COPY_NUMBER) ||
+                (getDataType() == DataType.CNV)) &&
+                !isLogNormalized()) {
+            double centerValue = (getDataType() == DataType.ALLELE_SPECIFIC_COPY_NUMBER)
+                    ? 1.0 : 2.0;
+
+            return (float) (Globals.log2(Math.max(Float.MIN_VALUE, dataY) / centerValue));
+        } else {
+            return dataY;
+        }
+    }
+
+    public boolean isRegionScoreType(RegionScoreType type) {
+        return (getDataType() == DataType.GENE_EXPRESSION && type == RegionScoreType.EXPRESSION) ||
+                ((getDataType() == DataType.COPY_NUMBER || getDataType() == DataType.CNV ||
+                        getDataType() == DataType.ALLELE_SPECIFIC_COPY_NUMBER) &&
+                        (type == RegionScoreType.AMPLIFICATION ||
+                                type == RegionScoreType.DELETION ||
+                                type == RegionScoreType.FLUX)) ||
+                (type == RegionScoreType.MUTATION_COUNT) ||
+                (type == RegionScoreType.SCORE);
+    }
+
+    public void setVisibilityWindow(int i) {
+        this.visibilityWindow = i;
+    }
+
+    public int getVisibilityWindow() {
+        return visibilityWindow;
+    }
+
+    public DisplayMode getDisplayMode() {
+        return displayMode;
+    }
+
+    /**
+     * Set the display mode.  For tracks with rows the SQUISHED and EXPANDED modes reset the row height to the
+     * corresponding default.  COLLAPSED tracks draw a single row at the expanded height.  FULL (alignments only)
+     * and CUSTOM leave the current row height unchanged.
+     */
+    public void setDisplayMode(DisplayMode mode) {
+        if (hasRows() && mode != this.displayMode && height == 0 && viewport != null) {
+            // The track is displayed and auto-sized to its content.  Pin the current visible height so that changing
+            // the mode, and hence the content height, does not change the height of the track itself.  Tracks that
+            // have not yet been displayed (viewport == null, e.g. during session loading) remain auto-sized.
+            this.height = getHeight();
+        }
+        this.displayMode = mode;
+        if (hasRows()) {
+            if (mode == DisplayMode.SQUISHED) {
+                this.rowHeight = defaultSquishedRowHeight;
+            } else if (mode == DisplayMode.EXPANDED || mode == DisplayMode.COLLAPSED) {
+                this.rowHeight = defaultExpandedRowHeight;
+            }
+        }
+    }
+
+
+    public String getTooltipText(int y) {
+
+        StringBuffer buffer = new StringBuffer();
+        buffer.append("<html>" + getName());
+
+        if (resourceLocator != null) {
+            Map<String, String> metadata = resourceLocator.getMetadata();
+            if (metadata != null && metadata.size() > 0) {
+                for (Map.Entry<String, String> entry : metadata.entrySet()) {
+                    String value = entry.getValue();
+                    if (value != null && value.length() > 0) {
+                        buffer.append("<br>" + entry.getKey() + ": " + entry.getValue());
+                    }
+                }
+            }
+        }
+
+        if (resourceLocator != null && resourceLocator.getPath() != null) {
+            buffer.append("<br>" + this.resourceLocator.getPath());
+        }
+
+        return buffer.toString();
+    }
+
+    /**
+     * Return a value string for the tooltip window at the given location, or null to signal there is no value
+     * at that location
+     *
+     * @param chr
+     * @param position
+     * @param mouseX
+     * @param frame    @return
+     */
+    public String getValueStringAt(String chr, double position, int mouseX, int mouseY, ReferenceFrame frame) {
+        return null;
+    }
+
+
+    public void setWindowFunction(WindowFunction type) {
+        // Required method for track interface, ignore
+    }
+
+    public WindowFunction getWindowFunction() {
+        return null;
+    }
+
+    public float getRegionScore(String chr, int start, int end, int zoom, RegionScoreType type, String frameName) {
+        // Required method for track interface, ignore
+        return getRegionScore(chr, start, end, zoom, type, frameName, null);
+    }
+
+
+    /**
+     * @param chr
+     * @param start
+     * @param end
+     * @param zoom
+     * @param type
+     * @param frameName
+     * @param tracks
+     * @return
+     */
+    public float getRegionScore(String chr, int start, int end, int zoom, RegionScoreType type, String frameName, List<Track> tracks) {
+        // Required method for track interface, ignore
+        return 0;
+    }
+
+
+    public boolean isLogNormalized() {
+        // Required method for track interface, ignore
+        return true;
+    }
+
+
+    public boolean isDrawYLine() {
+        return drawYLine;
+    }
+
+    public float getYLine() {
+        return yLine;
+    }
+
+    @Override
+    public void unload() {
+        if (this instanceof IGVEventObserver) {
+            IGVEventBus.getInstance().unsubscribe((IGVEventObserver) this);
+        }
+    }
+
+
+    public void setRenderer(Renderer renderer) {
+        //Here as setter for corresponding getter, subclasses should override
+    }
+
+    @Override
+    public Renderer getRenderer() {
+        return null;
+    }
+
+    // Start of Roche-Tessella modification
+    public boolean getAutoScale() {
+        return this.autoScale;
+    }
+    // End of Roche-Tessella modification
+
+
+    public void setShowFeatureNames(boolean b) {
+        this.showFeatureNames = b;
+    }
+
+    @Override
+    public boolean isShowFeatureNames() {
+        return showFeatureNames;
+    }
+
+    @Override
+    public void setTrackLine(String trackLine) {
+        this.trackLine = trackLine;
+    }
+
+    /**
+     * Return "track" line information for exporting features to a file.  Default is null, subclasses may override.
+     *
+     * @return
+     */
+    public String getExportTrackLine() {
+        return trackLine;
+    }
+
+    public String getSampleId() {
+        return sampleId;
+    }
+
+    public Color getFeatureColor(IGVFeature feature) {
+
+        // Set color used to draw the feature
+        Color featureColor = null;
+
+        // If an alt color is explicitly set use it for negative strand features;
+        if (feature.getStrand() == Strand.NEGATIVE) {
+            featureColor = altColor;  // Use member variable, not getColor() which has defaulting behavior
+        }
+
+        // If color is explicitly set use it
+        if (featureColor == null) {
+            featureColor = color;         // Use member variable, not getColor() which has defaulting behavior
+        }
+
+        // No explicitly set color, try the feature itself
+        if (featureColor == null) {
+            featureColor = feature.getColor();
+        }
+
+        // If still no color use defaults
+        if (featureColor == null) {
+            if (getDataType() == DataType.CNV) {
+                featureColor = feature.getName().equals("gain") ? Globals.DULL_RED : Globals.DULL_BLUE;
+            } else {
+                featureColor = getDefaultColor();
+            }
+        }
+
+        if (useScore) {
+            float score = feature.getScore();
+            float alpha = 1;
+            if (!Float.isNaN(score)) {
+                float binWidth = (viewLimitMax - viewLimitMin) / 9;
+                int binNumber = (int) ((score - viewLimitMin) / binWidth);
+                alpha = Math.min(1.0f, 0.2f + (binNumber * 0.8f) / 9);
+            }
+            featureColor = ColorUtilities.getCompositeColor(featureColor, alpha);
+        }
+
+        return featureColor;
+    }
+
+    @Override
+    public void repaint() {
+        if (this.viewport != null) {
+            this.viewport.repaint(this.viewport.getVisibleRect());
+        }
+    }
+
+
+    @Override
+    public int sampleCount() {
+        var count = 0;
+        for (var group : getSampleGroups()) {
+            count += group.samples().size();
+        }
+        return count;
+    }
+
+
+    /// //////////////////////////////////////////////////////////////////////////////////////
+    // Sorting
+    public boolean hasSamples() {
+        return sampleNames != null && !sampleNames.isEmpty();
+    }
+
+    public void sortSamples(Comparator<String> comparator) {
+        // Sort both master list and groups
+        if (sampleNames != null) {
+            sampleNames.sort(comparator);
+            if (selectedSamples != null) {
+                selectedSamples.sort(comparator);
+            }
+            for (var group : getSampleGroups()) {
+                group.samples().sort(comparator);
+            }
+            repaint();
+        }
+    }
+
+    public SampleSort getSampleSort() {
+        return sampleSort;
+    }
+
+    /**
+     * Sort samples by attribute values, and remember the sort for sessions.
+     */
+    public void sortSamplesByAttributes(String[] attributeNames, boolean[] ascending) {
+        sortSamples(new SampleAttributeComparator(attributeNames, ascending));
+        this.sampleSort = SampleSort.attributes(attributeNames, ascending);
+    }
+
+    /**
+     * Sort samples by name, and remember the sort for sessions.
+     */
+    public void sortSamplesByName(boolean ascending) {
+        sortSamples(ascending ? Comparator.naturalOrder() : Comparator.reverseOrder());
+        this.sampleSort = SampleSort.sampleName(ascending);
+    }
+
+    /**
+     * Reapply a sort restored from a session.  Subclasses handle sorts by data at a locus.
+     */
+    protected void applySampleSort(SampleSort sort) {
+        if (SampleSort.ATTRIBUTE.equals(sort.getOption())) {
+            sortSamplesByAttributes(sort.getAttributes(), sort.getAttributeAscending());
+        } else if (SampleSort.SAMPLE_NAME.equals(sort.getOption())) {
+            sortSamplesByName(sort.isAscending());
+        }
+    }
+
+    public SampleFilter getSampleFilter() {
+        return sampleFilter;
+    }
+
+    /**
+     * Filter samples by attribute.  Samples must also pass the ID filter, if any, to be shown.
+     */
+    public void setSampleFilter(SampleFilter sampleFilter) {
+        this.sampleFilter = sampleFilter;
+        resetSampleGroups();
+    }
+
+    public List<String> getSampleNames() {
+        return sampleNames;
+    }
+
+    public List<String> getSelectedSamples() {
+        return selectedSamples;
+    }
+
+    /**
+     * Restrict the displayed samples to the given IDs, or show all samples if null.  Samples are shown in the order of
+     * the list, or in the current sort order if the samples have been sorted, so that a saved session restores the
+     * order shown.  This is the "samples" property of igv.js track configurations.  A list that includes every
+     * sample is stored as null.  Samples must also pass the attribute filter, if any, to be shown.
+     */
+    public void setSelectedSamples(List<String> selectedSamples) {
+        List<String> selection = normalizeSelection(selectedSamples);
+        if (selection != null && sampleSort != null) {
+            Map<String, Integer> sortOrder = new HashMap<>();
+            for (int i = 0; i < sampleNames.size(); i++) {
+                sortOrder.put(sampleNames.get(i), i);
+            }
+            selection.sort(Comparator.comparingInt(sample -> sortOrder.getOrDefault(sample, Integer.MAX_VALUE)));
+        }
+        this.selectedSamples = selection;
+        resetSampleGroups();
+    }
+
+    private List<String> normalizeSelection(List<String> samples) {
+        if (samples == null || (sampleNames != null && new HashSet<>(samples).containsAll(sampleNames))) {
+            return null;
+        }
+        return new ArrayList<>(samples);
+    }
+
+    public List<String> getFilteredSamples() {
+        List<String> samples = sampleNames;
+        if (selectedSamples != null) {
+            Set<String> trackSamples = new HashSet<>(sampleNames);
+            samples = selectedSamples.stream().filter(trackSamples::contains).collect(Collectors.toList());
+        }
+        return sampleFilter == null ? samples : sampleFilter.evaluateSamples(samples);
+    }
+
+    public void setSampleGroupBy(String attribute) {
+        this.groupBy = attribute;
+        resetSampleGroups();
+    }
+
+
+    private void resetSampleGroups() {
+
+        var filteredSampleNames = getFilteredSamples();
+
+        String attributeKey = this.groupBy;
+        this.sampleGroups.clear();
+
+        if (attributeKey == null) {
+            this.sampleGroups.add(new SampleGroup("", filteredSampleNames));
+        } else {
+            var attributeManager = AttributeManager.getInstance();
+            var groupMap = new LinkedHashMap<String, List<String>>();
+            for (var sample : filteredSampleNames) {
+                var attributeValue = attributeManager.getAttribute(sample, attributeKey.toUpperCase());
+                if (attributeValue == null) {
+                    attributeValue = "";
+                }
+                var samples = groupMap.computeIfAbsent(attributeValue, k -> new ArrayList<>());
+                samples.add(sample);
+            }
+
+            // Create groups
+            for (var key : groupMap.keySet()) {
+                sampleGroups.add(new SampleGroup(key, groupMap.get(key)));
+            }
+        }
+
+        repaint();
+    }
+
+    /**
+     * Restore track from XML serialization -- work in progress
+     * //        <renderer="BASIC_FEATURE" sortable="false" visible="true" windowFunction="count">
+     *
+     * @param element
+     */
+
+    @Override
+    public void unmarshalXML(Element element, Integer version) {
+
+        if (element.hasAttribute("name")) {
+            this.name = element.getAttribute("name");
+        }
+
+        if (element.hasAttribute("id")) {
+            this.id = element.getAttribute("id");
+        }
+
+        if (element.hasAttribute("displayMode")) {
+            try {
+                setDisplayMode(DisplayMode.valueOf(element.getAttribute("displayMode")));
+            } catch (IllegalArgumentException e) {
+                log.error("Unrecognized displayMode: " + element.getAttribute("displayMode"));
+                this.displayMode = DisplayMode.COLLAPSED;
+            }
+        }
+
+        if (element.hasAttribute("color")) {
+            try {
+                Color c = ColorUtilities.stringToColor(element.getAttribute("color"));
+                this.color = c;
+            } catch (Exception e) {
+                log.error("Unrecognized color: " + element.getAttribute("color"));
+            }
+        }
+
+        if (element.hasAttribute("altColor")) {
+            try {
+                Color c = ColorUtilities.stringToColor(element.getAttribute("altColor"));
+                this.altColor = c;
+            } catch (Exception e) {
+                log.error("Unrecognized altColor: " + element.getAttribute("altColor"));
+            }
+        }
+
+        if (element.hasAttribute("colorScale")) {
+            try {
+                this.colorScale = (ContinuousColorScale) ColorScaleFactory.getScaleFromString(element.getAttribute("colorScale"));
+            } catch (Exception e) {
+                log.error("Unrecognized colorScale: " + element.getAttribute("colorScale"));
+            }
+        }
+
+        if (element.hasAttribute("visible")) {
+            try {
+                this.setVisible(Boolean.parseBoolean(element.getAttribute("visible")));
+            } catch (Exception e) {
+                log.error("Unrecognized visisbilty: " + element.getAttribute("visible"));
+            }
+        }
+
+        if (element.hasAttribute("autoScale")) {
+            try {
+                this.autoScale = Boolean.valueOf(element.getAttribute("autoScale"));
+            } catch (Exception e) {
+                log.error("Unrecognized autoScale: " + element.getAttribute("autoScale"));
+            }
+        }
+
+        if (element.hasAttribute("autoscaleGroup")) {
+            String autoscaleGroup = element.getAttribute("autoscaleGroup");
+            this.setAttributeValue(AttributeManager.GROUP_AUTOSCALE, "" + autoscaleGroup);
+        }
+
+        if (element.hasAttribute("showDataRange")) {
+            try {
+                this.showDataRange = Boolean.valueOf(element.getAttribute("showDataRange"));
+            } catch (Exception e) {
+                log.error("Unrecognized showDataRange: " + element.getAttribute("showDataRange"));
+            }
+        }
+
+        if (element.hasAttribute("featureVisibilityWindow")) {
+            try {
+                this.visibilityWindow = Integer.parseInt(element.getAttribute("featureVisibilityWindow"));
+            } catch (NumberFormatException e) {
+                log.error("Unrecognized featureVisibilityWindow: " + element.getAttribute("featureVisibilityWindow"));
+            }
+        }
+
+        if (element.hasAttribute("showFeatureNames")) {
+            try {
+                this.showFeatureNames = Boolean.valueOf(element.getAttribute("showFeatureNames"));
+            } catch (Exception e) {
+                log.error("Unrecognized showDataRange: " + element.getAttribute("showFeatureNames"));
+            }
+
+        }
+
+        if (element.hasAttribute("fontSize")) {
+            try {
+                this.fontSize = Integer.parseInt(element.getAttribute("fontSize"));
+            } catch (NumberFormatException e) {
+                log.error("Unrecognized fontSize: " + element.getAttribute("fontSize"));
+            }
+        }
+
+        if (element.hasAttribute("height")) {
+            try {
+                this.height = Integer.parseInt(element.getAttribute("height"));
+            } catch (NumberFormatException e) {
+                log.error("Unrecognized height: " + element.getAttribute("height"));
+            }
+        }
+
+        if (element.hasAttribute("windowFunction")) {
+            try {
+                this.setWindowFunction(WindowFunction.valueOf(element.getAttribute("windowFunction")));
+            } catch (IllegalArgumentException e) {
+                log.error("Unknown windowFunction: " + element.getAttribute("windowFunction"), e);
+            }
+        }
+
+        // Set DataRange -- legacy (pre V3 sessions)
+        if (version <= 3 && element.hasAttribute(SessionAttribute.SCALE)) {
+            String scale = element.getAttribute(SessionAttribute.SCALE);
+            try {
+                String[] axis = scale.split(",");
+                float minimum = Float.parseFloat(axis[0]);
+                float baseline = Float.parseFloat(axis[1]);
+                float maximum = Float.parseFloat(axis[2]);
+                setDataRange(new DataRange(minimum, baseline, maximum));
+            } catch (NumberFormatException e) {
+                log.error("Unrecognized dataRange: " + element.getAttribute("scale"));
+            }
+        }
+
+        NodeList nodeList = element.getElementsByTagName("DataRange");
+        if (nodeList != null && nodeList.getLength() > 0) {
+            Element dataRangeElement = (Element) nodeList.item(0);
+            try {
+                this.dataRange = new DataRange(dataRangeElement, version);
+            } catch (Exception e) {
+                log.error("Unrecognized DataRange");
+            }
+        }
+    }
+
+    @Override
+    public void marshalJSON(JSONObject jsonObject) {
+
+        ResourceLocator locator = this.getResourceLocator();
+        if (locator != null) {
+            String path = locator.getPath();
+            if (path != null) {
+                if (FileUtils.isRemote(path)) {
+                    jsonObject.put("url", path);
+                } else {
+                    jsonObject.put("path", path);
+                }
+                String indexPath = locator.getIndexPath();
+                if (indexPath != null) {
+                    if (FileUtils.isRemote(indexPath)) {
+                        jsonObject.put("indexURL", indexPath);
+                    } else {
+                        jsonObject.put("indexPath", indexPath);
+                    }
+                }
+            }
+            String format = locator.getFormat();
+            if (format != null) {
+                jsonObject.put("format", format);
+            }
+        }
+
+        jsonObject.put("order", order);
+        jsonObject.put("type", getType().toString());
+        jsonObject.put("id", id);
+        jsonObject.put("name", name);
+        if (fontSize != PreferencesManager.getPreferences().getAsInt(DEFAULT_FONT_SIZE)) {
+            jsonObject.put("fontSize", String.valueOf(fontSize));
+        }
+        if (!visible) {
+            jsonObject.put("visible", String.valueOf(visible));
+        }
+
+        if (showFeatureNames != DEFAULT_SHOW_FEATURE_NAMES) {
+            jsonObject.put("showFeatureNames", showFeatureNames);
+        }
+        if (color != null && color != getDefaultColor()) {
+            jsonObject.put(SessionAttribute.COLOR, ColorUtilities.colorToString(color));
+        }
+        if (altColor != null) {
+            jsonObject.put(SessionAttribute.ALT_COLOR, ColorUtilities.colorToString(altColor));
+        }
+        if (visibilityWindow != VISIBILITY_WINDOW) {
+            jsonObject.put("visibilityWindow", String.valueOf(visibilityWindow));
+        }
+        if (displayMode != DEFAULT_DISPLAY_MODE) {
+            // igv.js has no CUSTOM mode.  CUSTOM is written as EXPANDED and restored from the rowHeight on reading.
+            DisplayMode mode = displayMode == DisplayMode.CUSTOM ? DisplayMode.EXPANDED : displayMode;
+            jsonObject.put(SessionAttribute.DISPLAY_MODE, mode.toString());
+        }
+        if (colorScale != null) {
+            //colorScale="ContinuousColorScale;-0.1;-1.5;0.1;1.5;0,153,204;255,255,255;255,0,0"
+            jsonObject.put("colorScale", colorScale.asString());
+        }
+        if (height != DEFAULT_HEIGHT && height > 0) {
+            jsonObject.put("height", this.height);
+        }
+        if (rowHeight > 0) {
+            jsonObject.put("rowHeight", this.rowHeight);
+        }
+        if (showDataRange == false) {
+            jsonObject.put("showDataRange", showDataRange);
+        }
+        if (isNumeric()) {
+            if (autoscaleGroup != null) {
+                jsonObject.put("autoscaleGroup", this.autoscaleGroup);
+            }
+
+            jsonObject.put("autoscale", String.valueOf(this.autoScale));
+
+            if (this.getWindowFunction() != null) {
+                jsonObject.put("windowFunction", String.valueOf(this.getWindowFunction()));
+            }
+
+            if (this.dataRange != null) {
+                this.dataRange.marshalJSON(jsonObject);
+            }
+        }
+
+        if (groupBy != null) {
+            jsonObject.put("groupBy", groupBy);
+        }
+
+        if (sampleFilter != null) {
+            jsonObject.put("sampleFilter", sampleFilter.toJson());
+        }
+
+        if (selectedSamples != null) {
+            jsonObject.put("samples", selectedSamples);
+        }
+
+        if (sampleSort != null) {
+            jsonObject.put("sort", sampleSort.toJson());
+        }
+
+    }
+
+
+    @Override
+    public void unmarshalJSON(JSONObject jsonObject) {
+
+        if (jsonObject.has("order")) {
+            this.order = jsonObject.getLong("order");
+        }
+
+        if (jsonObject.has("name")) {
+            this.name = jsonObject.getString("name");
+        }
+
+        if (jsonObject.has("id")) {
+            this.id = jsonObject.getString("id");
+        }
+
+        if (jsonObject.has("displayMode")) {
+            try {
+                setDisplayMode(DisplayMode.valueOf(jsonObject.getString("displayMode")));
+            } catch (IllegalArgumentException e) {
+                log.error("Unrecognized displayMode: " + jsonObject.getString("displayMode"));
+                this.displayMode = DisplayMode.COLLAPSED;
+            }
+        }
+
+        if (jsonObject.has("color")) {
+            try {
+                Color c = ColorUtilities.stringToColor(jsonObject.getString("color"));
+                this.color = c;
+            } catch (Exception e) {
+                log.error("Unrecognized color: " + jsonObject.getString("color"));
+            }
+        }
+
+        if (jsonObject.has("altColor")) {
+            try {
+                Color c = ColorUtilities.stringToColor(jsonObject.getString("altColor"));
+                this.altColor = c;
+            } catch (Exception e) {
+                log.error("Unrecognized altColor: " + jsonObject.getString("altColor"));
+            }
+        }
+
+        if (jsonObject.has("colorScale")) {
+            try {
+                this.colorScale = (ContinuousColorScale) ColorScaleFactory.getScaleFromString(jsonObject.getString("colorScale"));
+            } catch (Exception e) {
+                log.error("Unrecognized colorScale: " + jsonObject.getString("colorScale"));
+            }
+        }
+
+        if (jsonObject.has("visible")) {
+            try {
+                this.setVisible(jsonObject.getBoolean("visible"));
+            } catch (Exception e) {
+                log.error("Unrecognized visisbilty: " + jsonObject.getString("visible"));
+            }
+        }
+
+        if (jsonObject.has("autoscale")) {
+            try {
+                this.autoScale = jsonObject.getBoolean("autoscale");
+            } catch (Exception e) {
+                log.error("Unrecognized autoScale: " + jsonObject.getString("autoscale"));
+            }
+        }
+
+        if (jsonObject.has("autoscaleGroup")) {
+            String autoscaleGroup = jsonObject.getString("autoscaleGroup");
+            this.setAttributeValue(AttributeManager.GROUP_AUTOSCALE, "" + autoscaleGroup);
+        }
+
+        if (jsonObject.has("showDataRange")) {
+            try {
+                this.showDataRange = jsonObject.getBoolean("showDataRange");
+            } catch (Exception e) {
+                log.error("Unrecognized showDataRange: " + jsonObject.getString("showDataRange"));
+            }
+        }
+
+        if (jsonObject.has("visibilityWindow")) {
+            try {
+                this.visibilityWindow = Integer.parseInt(jsonObject.getString("visibilityWindow"));
+            } catch (NumberFormatException e) {
+                log.error("Unrecognized featureVisibilityWindow: " + jsonObject.getString("visibilityWindow"));
+            }
+        }
+
+        if (jsonObject.has("showFeatureNames")) {
+            try {
+                this.showFeatureNames = jsonObject.getBoolean("showFeatureNames");
+            } catch (Exception e) {
+                log.error("Unrecognized showDataRange: " + jsonObject.getString("showFeatureNames"));
+            }
+
+        }
+
+        if (jsonObject.has("fontSize")) {
+            try {
+                this.fontSize = jsonObject.getInt("fontSize");
+            } catch (Exception e) {
+                log.error("Unrecognized fontSize: " + jsonObject.getString("fontSize"));
+            }
+        }
+
+        if (jsonObject.has("height")) {
+            try {
+                this.height = jsonObject.getInt("height");
+            } catch (Exception e) {
+                log.error("Unrecognized height: " + jsonObject.getString("height"));
+            }
+        }
+
+        if (jsonObject.has("rowHeight")) {
+            try {
+                this.rowHeight = jsonObject.getInt("rowHeight");
+            } catch (Exception e) {
+                log.error("Unrecognized rowHeight: " + jsonObject.getString("rowHeight"));
+            }
+            if (hasRows() &&
+                    ((displayMode == DisplayMode.SQUISHED && rowHeight != defaultSquishedRowHeight) ||
+                            (displayMode == DisplayMode.EXPANDED && rowHeight != defaultExpandedRowHeight))) {
+                this.displayMode = DisplayMode.CUSTOM;
+            }
+        }
+
+        if (jsonObject.has("windowFunction")) {
+            try {
+                this.setWindowFunction(WindowFunction.valueOf(jsonObject.getString("windowFunction")));
+            } catch (IllegalArgumentException e) {
+                log.error("Unknown windowFunction: " + jsonObject.getString("windowFunction"), e);
+            }
+        }
+
+        if (jsonObject.has("max")) {
+            this.dataRange = DataRange.fromJson(jsonObject);
+        }
+
+
+        if (jsonObject.has("samples") || jsonObject.has("groupBy") || jsonObject.has("sampleFilter")) {
+
+            if (jsonObject.has("groupBy")) {
+                // Samples are also grouped
+                this.groupBy = jsonObject.getString("groupBy");
+            }
+
+            if (jsonObject.has("sampleFilter")) {
+                try {
+                    this.sampleFilter = SampleFilter.fromJson(jsonObject.getJSONObject("sampleFilter"));
+                } catch (Exception e) {
+                    log.error("Unrecognized sampleFilter: " + jsonObject.getJSONObject("sampleFilter"));
+                }
+            }
+
+            if (jsonObject.has("samples")) {
+                // Samples to show, in order, as in igv.js
+                List<String> samples = new ArrayList<>();
+                jsonObject.getJSONArray("samples").forEach(s -> samples.add((String) s));
+                this.selectedSamples = normalizeSelection(samples);
+            }
+
+            resetSampleGroups();
+        }
+
+        if (jsonObject.has("sort")) {
+            try {
+                applySampleSort(SampleSort.fromJson(jsonObject.getJSONObject("sort")));
+            } catch (Exception e) {
+                log.error("Unrecognized sort: " + jsonObject.get("sort"), e);
+            }
+        }
+    }
+
+    public String getGroupBy() {
+        return groupBy;
+    }
+}
