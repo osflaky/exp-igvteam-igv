@@ -1,0 +1,84 @@
+{
+  "genome": "hg19",
+  "locus": "chr17:37276855-37277154",
+  "hiddenAttributes": [
+    "DATA FILE",
+    "DATA TYPE",
+    "NAME"
+  ],
+  "tracks": [
+    {
+      "sequenceTranslationStrandValue": "+",
+      "name": "Reference sequence",
+      "shouldShowTranslation": true,
+      "id": "Reference sequence",
+      "type": "sequence",
+      "order": 0
+    },
+    {
+      "visible": "false",
+      "format": "bam",
+      "name": "reads_lr_skbr3.sampled.bam Junctions",
+      "id": "https://igv.org/data/test/bam/skbr3/reads_lr_skbr3.sampled.bam_junctions",
+      "type": "junction",
+      "maxdepth": 50,
+      "url": "https://igv.org/data/test/bam/skbr3/reads_lr_skbr3.sampled.bam",
+      "order": 1,
+      "height": 60,
+      "rowHeight": 35,
+      "autoScale": "true"
+    },
+    {
+      "showGenotypes": true,
+      "format": "vcf",
+      "name": "reads_lr_skbr3.fa_ngmlr-0.2.3_mapped.bam.sniffles1kb_auto_l8_s5_noalt_filtered.tra.vcf",
+      "id": "https://igv.org/data/test/vcf/reads_lr_skbr3.fa_ngmlr-0.2.3_mapped.bam.sniffles1kb_auto_l8_s5_noalt_filtered.tra.vcf",
+      "siteColorMode": "ALLELE_FREQUENCY",
+      "type": "variant",
+      "url": "https://igv.org/data/test/vcf/reads_lr_skbr3.fa_ngmlr-0.2.3_mapped.bam.sniffles1kb_auto_l8_s5_noalt_filtered.tra.vcf",
+      "order": 2,
+      "rowHeight": 15
+    },
+    {
+      "flipAxis": false,
+      "drawBaseline": true,
+      "max": 82,
+      "format": "bam",
+      "mid": 0,
+      "type": "coverage",
+      "autoscale": "true",
+      "url": "https://igv.org/data/test/bam/skbr3/reads_lr_skbr3.sampled.bam",
+      "logScale": false,
+      "min": 0,
+      "name": "reads_lr_skbr3.sampled.bam Coverage",
+      "id": "https://igv.org/data/test/bam/skbr3/reads_lr_skbr3.sampled.bam_coverage",
+      "alleleFreqThreshold": 0.2,
+      "order": 3
+    },
+    {
+      "color": "185,185,185",
+      "format": "bam",
+      "type": "alignment",
+      "url": "https://igv.org/data/test/bam/skbr3/reads_lr_skbr3.sampled.bam",
+      "displayMode": "EXPANDED",
+      "experimentType": "THIRD_GEN",
+      "duplicatesOption": "FILTER",
+      "hideSmallIndels": true,
+      "indexlSizeThreshold": 5,
+      "name": "reads_lr_skbr3.sampled.bam",
+      "id": "https://igv.org/data/test/bam/skbr3/reads_lr_skbr3.sampled.bam",
+      "order": 4,
+      "height": 501,
+      "rowHeight": 14
+    },
+    {
+      "format": "refgene",
+      "name": "Refseq All",
+      "id": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/ncbiRefSeq.txt.gz",
+      "type": "annotation",
+      "url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/ncbiRefSeq.txt.gz",
+      "order": 100000,
+      "rowHeight": 35
+    }
+  ]
+}

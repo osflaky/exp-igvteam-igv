@@ -1,0 +1,209 @@
+package org.igv.bedpe;
+
+import org.igv.hic.HicFile;
+import org.igv.renderer.ContinuousColorScale;
+import org.igv.track.TrackClickEvent;
+import org.igv.ui.IGV;
+import org.igv.ui.panel.FrameManager;
+import org.igv.ui.panel.IGVPopupMenu;
+import org.igv.ui.panel.ReferenceFrame;
+import org.igv.util.ResourceLocator;
+import org.json.JSONObject;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+
+import javax.swing.*;
+import java.awt.*;
+import java.util.List;
+
+/**
+ * Subclass of InteractionTrack for HiC format files.
+ * Handles HiC-specific behavior like normalization, contact map views, and zoom-based filtering.
+ */
+public class HicInteractionTrack extends InteractionTrack {
+
+    public HicInteractionTrack() {
+        super();
+    }
+
+    public HicInteractionTrack(ResourceLocator locator, HicSource source) {
+        super(locator, source);
+        // HiC-specific defaults
+        maxFeatureCount = 5000;
+        graphType = GraphType.NESTED_ARC;
+        isHIC = true;
+        transparency = 0.1f;
+        setUseScore(false);   // Alpha score is set in the renderer based
+        setDefaultColor(Color.red);
+    }
+
+    @Override
+    protected List<BedPE> filterFeaturesForZoom(List<BedPE> features, LoadedInterval interval, ReferenceFrame referenceFrame) {
+        // In HiC mode we limit interactions to those in view plus a margin of one screen width to either side.
+        // If zooming in this means we have to filter the features from the previous zoom level that are outside
+        // of this range. Not doing so leads to inconsistent rendering when loading for the current zoom
+        // completes and repaints.
+        if (interval.zoom() < referenceFrame.getZoom()) {
+            int start = (int) referenceFrame.getOrigin();
+            int end = (int) referenceFrame.getEnd();
+            int w = (end - start);
+            int finalStart = start - w;
+            int finalEnd = end + w;
+            return features.stream()
+                    .takeWhile(f -> f.getStart() <= finalEnd)
+                    .filter(f -> f.getEnd() >= finalStart)
+                    .toList();
+        }
+        return features;
+    }
+
+    void addHICItems(TrackClickEvent te, List<Component> items) {
+
+        final JMenuItem transparencyItem = new JMenuItem("Set Transparency...");
+        transparencyItem.addActionListener(e -> {
+            final JSlider slider = new JSlider(1, 100, (int) (this.transparency * 100));
+            slider.setMajorTickSpacing(10);
+            slider.setPaintTicks(true);
+
+            // Create a label to show the current value
+            final JLabel valueLabel = new JLabel(String.format("%.2f", this.transparency));
+
+            slider.addChangeListener(changeEvent -> {
+                JSlider source = (JSlider) changeEvent.getSource();
+                float value = source.getValue() / 100.0f;
+                this.transparency = value;
+                valueLabel.setText(String.format("%.2f", value));
+                this.repaint();
+            });
+
+            JPanel panel = new JPanel(new BorderLayout());
+            panel.add(slider, BorderLayout.CENTER);
+            panel.add(valueLabel, BorderLayout.SOUTH);
+
+            final Frame parent = IGV.hasInstance() ? IGV.getInstance().getMainFrame() : null;
+            JOptionPane.showMessageDialog(parent, panel, "Set Transparency for " + this.getDisplayName(), JOptionPane.PLAIN_MESSAGE);
+        });
+        items.add(transparencyItem);
+
+
+        final JMenuItem maxFeatureCountItem = new JMenuItem("Set Maximum Feature Count...");
+        maxFeatureCountItem.addActionListener(e -> {
+            final JSlider slider = new JSlider(1000, 20000, this.maxFeatureCount);
+            slider.setMajorTickSpacing(5000);
+            slider.setPaintTicks(true);
+
+            final JLabel valueLabel = new JLabel(String.valueOf(this.maxFeatureCount));
+
+            slider.addChangeListener(changeEvent -> {
+                JSlider source = (JSlider) changeEvent.getSource();
+                int value = source.getValue();
+                valueLabel.setText(String.valueOf(value));
+
+                // Changing the count invalidates the loaded data, so only act when the drag is
+                // finished -- reloading on every intermediate value would be needlessly expensive.
+                if (source.getValueIsAdjusting() || value == this.maxFeatureCount) {
+                    return;
+                }
+                this.maxFeatureCount = value;
+                this.loadedIntervalMap.clear();
+
+                // Repaint through IGV, which reloads tracks that are not ready to paint.  A plain
+                // track repaint does not load, and would leave the track blank until something else
+                // (e.g. a window resize) triggered a load.
+                if (IGV.hasInstance()) {
+                    IGV.getInstance().repaint(this);
+                } else {
+                    this.repaint();
+                }
+            });
+
+            JPanel panel = new JPanel(new BorderLayout());
+            panel.add(slider, BorderLayout.CENTER);
+            panel.add(valueLabel, BorderLayout.SOUTH);
+
+            final Frame parent = IGV.hasInstance() ? IGV.getInstance().getMainFrame() : null;
+            JOptionPane.showMessageDialog(parent, panel, "Set Max Feature Count for " + this.getDisplayName(), JOptionPane.PLAIN_MESSAGE);
+        });
+        items.add(maxFeatureCountItem);
+
+        // Add normalization options for HiC tracks
+        List<String> normalizationTypes = featureSource.getNormalizationTypes();
+        if (normalizationTypes != null && normalizationTypes.size() > 1) {
+            items.add(new JPopupMenu.Separator());
+            items.add(new JLabel("<html><b>Normalization</b>"));
+            ButtonGroup normGroup = new ButtonGroup();
+            for (String type : normalizationTypes) {
+                String label = normalizationLabels.getOrDefault(type, type);
+                JRadioButtonMenuItem normItem = new JRadioButtonMenuItem(label);
+                normItem.setSelected(type.equals(normalization));
+                normItem.addActionListener(e -> {
+                    if (type.equals(this.normalization)) {
+                        return;
+                    }
+                    this.normalization = type;
+                    if (contactMapView != null) {
+                        contactMapView.setNormalization(type);
+                    }
+                    // The loaded intervals were fetched with the previous normalization, so they must
+                    // be reloaded.  Repaint through IGV, which loads tracks that are not ready to
+                    // paint; a plain track repaint would just redraw the stale data.
+                    if (IGV.hasInstance()) {
+                        IGV.getInstance().repaint(this);
+                    } else {
+                        this.repaint();
+                    }
+                });
+                normGroup.add(normItem);
+                items.add(normItem);
+            }
+        }
+
+        items.add(new JPopupMenu.Separator());
+        JMenuItem mapItem = new JMenuItem("Contact Map View...");
+        mapItem.setEnabled(contactMapView == null && !FrameManager.isGeneListMode());
+        mapItem.addActionListener(e -> {
+            ReferenceFrame frame = te.getFrame() != null ? te.getFrame() : FrameManager.getDefaultFrame();
+            if (contactMapView == null) {
+                ContinuousColorScale colorScale = this.getColorScale();
+                HicFile hicFile = ((HicSource) featureSource).getHicFile();
+                ContactMapView.showPopup(this, hicFile, normalization, frame, colorScale.getMaxColor());
+            }
+        });
+        items.add(mapItem);
+    }
+
+
+    @Override
+    public void unmarshalXML(Element element, Integer version) {
+        super.unmarshalXML(element, version);
+
+        if (element.hasAttribute("nvi")) {
+            String nviString = element.getAttribute("nvi");
+            ((HicSource) featureSource).setNVIString(nviString);
+        }
+    }
+
+    @Override
+    public void marshalJSON(JSONObject json) {
+        super.marshalJSON(json);
+        String nviString = ((HicSource) featureSource).getNVIString();
+        if (nviString != null) {
+            json.put("nvi", nviString);
+        }
+        if(!"NONE".equals(normalization)) {
+            json.put("normalization", normalization);
+        }
+    }
+
+    public void unmarshalJSON(JSONObject jsonObject) {
+        super.unmarshalJSON(jsonObject);
+        if (jsonObject.has("nvi")) {
+            String nviString = jsonObject.getString("nvi");
+            ((HicSource) featureSource).setNVIString(nviString);
+        }
+        if(jsonObject.has("normalization")) {
+            this.normalization = jsonObject.getString("normalization");
+        }
+    }
+}
+

@@ -1,0 +1,53 @@
+{
+  "genome": "hg19",
+  "locus": "chr1:1-575",
+  "hiddenAttributes": [
+    "DATA FILE",
+    "DATA TYPE",
+    "NAME"
+  ],
+  "nextAutoscaleGroup": "2",
+  "tracks": [
+    {
+      "format": "refgene",
+      "name": "Refseq All",
+      "id": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/ncbiRefSeq.txt.gz",
+      "type": "annotation",
+      "url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/database/ncbiRefSeq.txt.gz",
+      "order": 0
+    },
+    {
+      "path": "../../data/bp/example.bp",
+      "renderOptions": {
+        "arcDirection": "DOWN",
+        "colors": [
+          "255,218,125",
+          "204,0,255"
+        ]
+      },
+      "format": "bp",
+      "name": "example.bp",
+      "id": "../../data/bp/example.bp_example.bp",
+      "type": "arc",
+      "order": 0,
+      "height": 200
+    },
+    {
+      "path": "../../data/bp/stemLoop.bed",
+      "format": "bed",
+      "name": "stemLoop.bed",
+      "colorScale": "ContinuousColorScale;0.0;6.0;255,255,255;0,0,178",
+      "id": "../../data/bp/stemLoop.bed",
+      "type": "annotation",
+      "order": 1
+    },
+    {
+      "sequenceTranslationStrandValue": "+",
+      "name": "Reference sequence",
+      "shouldShowTranslation": true,
+      "id": "Reference sequence",
+      "type": "sequence",
+      "order": 2
+    }
+  ]
+}

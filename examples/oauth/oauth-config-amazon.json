@@ -1,0 +1,15 @@
+{
+   "apiKey": "",
+   "project_id": "igv",
+   "auth_provider": "Amazon",
+   "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+   "aws_region": "us-east-1",
+   "scope": "email%20openid%20profile",
+   "client_id": "eu7vd09a3dsfasdfd7r4kjomqg",
+   "client_secret": "s2416djkq5liigbrjdhktdsdgerefktsv04f9p810a3nc9",
+   "authorization_endpoint": "https://igv-demo.auth.us-east-1.amazoncognito.com/login",
+   "token_endpoint": "https://igv-demo.auth.us-east-1.amazoncognito.com/token",
+   "aws_cognito_fed_pool_id": "us-east-1:2926325e-0938-4dfc-840a-fa8a3e4f63f7",
+   "aws_cognito_pool_id": "us-east-1_v98erojsdkfj",
+   "aws_cognito_role_arn": "arn:aws:iam::3940820579:role/Cognito_igvAuth_Role"
+}

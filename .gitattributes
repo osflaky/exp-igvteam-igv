@@ -1,0 +1,2 @@
+# Test data is read at fixed byte offsets (.fai and .idx indexes, seek tests): never convert its line endings
+test/data/** -text
